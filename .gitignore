@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+env/
+venv/
+*.pkl
+
+# OS generated
+.DS_Store
+*.log
+*.bak
+*.swp
+
+# IDEs and editors
+.vscode/
+*.iml
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Android Studio / Android
+.gradle/
+local.properties
+build/
+app-debug.apk
+*.apk
+*.keystore
+
+# Misc
+.Rhistory
+.env
