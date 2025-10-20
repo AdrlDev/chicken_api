@@ -1,10 +1,12 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
 import os
 import cv2
 from ultralytics import YOLO # type: ignore
 from app.train_model import train_yolo_autosplit  # ✅ import from app folder
 import threading
+import base64
+import numpy as np
 
 # --- Paths ---
 BASE_DIR = os.path.dirname(__file__)
@@ -111,3 +113,41 @@ def stop_detection():
     global stop_live
     stop_live = True
     return JSONResponse({"status": "live detection stopped"})
+
+
+@app.websocket("/ws/detect")
+async def websocket_detect(websocket: WebSocket):
+    await websocket.accept()
+    print("📡 Client connected to realtime YOLO")
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+
+            # Decode base64 image
+            image_bytes = base64.b64decode(data.split(",")[1])
+            np_img = np.frombuffer(image_bytes, np.uint8)
+            frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+
+            # Run YOLO detection
+            results = yolo(frame)
+            detections = []
+            for r in results:
+                boxes = r.boxes
+                for box in boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    conf = float(box.conf[0])
+                    cls = int(box.cls[0])
+                    label = yolo.names[cls]
+                    detections.append({
+                        "label": label,
+                        "confidence": round(conf, 2),
+                        "bbox": [x1, y1, x2, y2]
+                    })
+
+            await websocket.send_json({"detections": detections})
+    except Exception as e:
+        print("❌ Connection closed:", e)
+    finally:
+        await websocket.close()
+        print("🛑 WebSocket disconnected")
