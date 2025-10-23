@@ -53,16 +53,13 @@ def train_model(background_tasks: BackgroundTasks):
 
 @app.get("/detect/live")
 def detect_live():
-    """
-    Start live detection from webcam using trained YOLO model.
-    Press 'q' to stop the window.
-    """
+    """Start live detection from webcam using trained YOLO model."""
     def _run_detection():
         global stop_live
         stop_live = False
         print("🎥 Starting live chicken detection...")
 
-        cap = cv2.VideoCapture(0)  # webcam index
+        cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("❌ Cannot open camera.")
             return
@@ -78,9 +75,11 @@ def detect_live():
             for r in results:
                 boxes = r.boxes
                 for box in boxes:
-                    # Bounding box
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
                     conf = float(box.conf[0])
+                    if conf < 0.5:  # ✅ Skip low-confidence detections
+                        continue
+
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
                     cls = int(box.cls[0])
                     label = yolo.names[cls]
 
@@ -103,7 +102,6 @@ def detect_live():
 
     threading.Thread(target=_run_detection).start()
     return JSONResponse({"status": "live detection started"})
-
 
 @app.post("/detect/stop")
 def stop_detection():
@@ -128,17 +126,28 @@ async def websocket_detect(websocket: WebSocket):
             image_bytes = base64.b64decode(data.split(",")[1])
             np_img = np.frombuffer(image_bytes, np.uint8)
             frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+            h, w, _ = frame.shape
 
             # Run YOLO detection
             results = yolo(frame)
             detections = []
+
             for r in results:
                 boxes = r.boxes
                 for box in boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
                     conf = float(box.conf[0])
+                    if conf < 0.5:  # ✅ filter low-confidence
+                        continue
+
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+                    # ✅ optional: skip boxes that cover >90% of frame (false positives)
+                    if (x2 - x1) > 0.9 * w and (y2 - y1) > 0.9 * h:
+                        continue
+
                     cls = int(box.cls[0])
                     label = yolo.names[cls]
+
                     detections.append({
                         "label": label,
                         "confidence": round(conf, 2),
@@ -146,6 +155,7 @@ async def websocket_detect(websocket: WebSocket):
                     })
 
             await websocket.send_json({"detections": detections})
+
     except Exception as e:
         print("❌ Connection closed:", e)
     finally:
