@@ -10,7 +10,7 @@ import base64
 import numpy as np
 import shutil
 from pathlib import Path
-from utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, timestamp, image_filename, image_path, classes_path
+from app.utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, timestamp, image_filename, image_path, classes_path
 from app.detection import _run_detection
 
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
