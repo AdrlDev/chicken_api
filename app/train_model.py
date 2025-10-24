@@ -80,13 +80,31 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt", epoch
             if os.path.exists(src_label):
                 shutil.copy2(src_label, dst_label)
 
+    # 🧩 Ensure there’s at least one validation image
+    val_img_dir = os.path.join(images_dir, "val")
+    val_lbl_dir = os.path.join(labels_dir, "val")
+    train_img_dir = os.path.join(images_dir, "train")
+    train_lbl_dir = os.path.join(labels_dir, "train")
+
+    if len(os.listdir(val_img_dir)) == 0:
+        print("⚠️ No validation images found. Copying 1 sample from train...")
+        train_imgs = [f for f in os.listdir(train_img_dir) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+        if train_imgs:
+            img = train_imgs[0]
+            base_name = os.path.splitext(img)[0]
+            shutil.copy2(os.path.join(train_img_dir, img), os.path.join(val_img_dir, img))
+            lbl_src = os.path.join(train_lbl_dir, f"{base_name}.txt")
+            lbl_dst = os.path.join(val_lbl_dir, f"{base_name}.txt")
+            if os.path.exists(lbl_src):
+                shutil.copy2(lbl_src, lbl_dst)
+
     # Create data.yaml
     yaml_content = f"""train: {os.path.join(images_dir, 'train')}
-val: {os.path.join(images_dir, 'val')}
+    val: {os.path.join(images_dir, 'val')}
 
-nc: {nc}
-names: {class_names}
-"""
+    nc: {nc}
+    names: {class_names}
+    """
     with open(data_yaml_path, "w") as f:
         f.write(yaml_content)
 
