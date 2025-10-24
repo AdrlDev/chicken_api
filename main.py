@@ -32,7 +32,6 @@ def train_model(background_tasks: BackgroundTasks):
         "dataset": DATASET_DIR
     })
 
-
 # ---------------------------------
 # 🐔 AUTO-LABEL ENDPOINT (ASYNC)
 # ---------------------------------
@@ -52,7 +51,6 @@ async def auto_label_train(
             shutil.copyfileobj(file.file, buffer)
 
         # ✅ 2. Load existing classes
-        classes_path = os.path.join(DATASET_DIR, "classes.txt")
         if os.path.exists(classes_path):
             with open(classes_path, "r") as f:
                 class_names = [line.strip() for line in f.readlines() if line.strip()]

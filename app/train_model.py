@@ -74,9 +74,9 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt", epoch
             dst_label = os.path.join(labels_dir, subset, f"{base_name}.txt")
 
             if os.path.exists(src_img):
-                shutil.copy2(src_img, dst_img)
+                shutil.move(src_img, dst_img)
             if os.path.exists(src_label):
-                shutil.copy2(src_label, dst_label)
+                shutil.move(src_label, dst_label)
 
     # Create data.yaml
     yaml_content = f"""train: {os.path.join(images_dir, 'train')}
