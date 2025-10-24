@@ -1,29 +1,30 @@
 import os
 import random
 import shutil
+import threading
+import subprocess
 from datetime import datetime
 from ultralytics import YOLO  # type: ignore
 from app.utils import BASE_DIR, YOLO_WEIGHTS, DATASET_DIR, TRAINED_WEIGHTS
-import subprocess
-import threading
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
+
 
 def backup_dataset(dataset_dir: str):
     """Create a timestamped backup of the dataset before training."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # microseconds for uniqueness
     backup_dir = os.path.join(BASE_DIR, "backups", f"dataset_{timestamp}")
     os.makedirs(os.path.dirname(backup_dir), exist_ok=True)
-    if os.path.exists(backup_dir):
-        shutil.rmtree(backup_dir)
-    shutil.copytree(dataset_dir, backup_dir)
+    shutil.copytree(dataset_dir, backup_dir, dirs_exist_ok=True)
     print(f"📦 Dataset backed up to: {backup_dir}")
 
-def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt", epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
+
+def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
+                         epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
     """
-    Automatically split YOLO dataset (from Label Studio) into train/val, create data.yaml, and train YOLOv8.
-    Safe version: does not remove existing files.
+    Automatically split YOLO dataset (from Label Studio) into train/val,
+    create data.yaml, and train YOLOv8.
     """
 
     # --- Backup before training ---
@@ -44,85 +45,77 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt", epoch
     nc = len(class_names)
 
     # Prepare split directories
-    split_dirs = [
-        os.path.join(images_dir, "train"),
-        os.path.join(images_dir, "val"),
-        os.path.join(labels_dir, "train"),
-        os.path.join(labels_dir, "val"),
-    ]
-    for d in split_dirs:
-        os.makedirs(d, exist_ok=True)
+    for sub in ["train", "val"]:
+        os.makedirs(os.path.join(images_dir, sub), exist_ok=True)
+        os.makedirs(os.path.join(labels_dir, sub), exist_ok=True)
 
-    # Collect all unsplit images (ignore those already inside /train or /val)
+    # Collect all unsplit images (ignore ones already in /train or /val)
     image_files = [
         f for f in os.listdir(images_dir)
         if f.lower().endswith((".jpg", ".jpeg", ".png"))
         and not os.path.isdir(os.path.join(images_dir, f))
     ]
 
-    # Shuffle and split only new ones
+    if not image_files:
+        raise RuntimeError("❌ No images found in dataset/images")
+
+    # Shuffle and split
     random.shuffle(image_files)
     split_idx = int(len(image_files) * (1 - val_ratio))
-    train_images = image_files[:split_idx]
-    val_images = image_files[split_idx:]
+    train_images = image_files[:split_idx] or image_files
+    val_images = image_files[split_idx:] or image_files[-1:]
 
-    # ✅ Copy (not move) to keep dataset intact
+    # Move files to train/val
     for subset, files in [("train", train_images), ("val", val_images)]:
         for img_file in files:
             base_name = os.path.splitext(img_file)[0]
             src_img = os.path.join(images_dir, img_file)
-            src_label = os.path.join(labels_dir, f"{base_name}.txt")
+            src_lbl = os.path.join(labels_dir, f"{base_name}.txt")
             dst_img = os.path.join(images_dir, subset, img_file)
-            dst_label = os.path.join(labels_dir, subset, f"{base_name}.txt")
+            dst_lbl = os.path.join(labels_dir, subset, f"{base_name}.txt")
 
             if os.path.exists(src_img):
-                shutil.copy2(src_img, dst_img)
-            if os.path.exists(src_label):
-                shutil.copy2(src_label, dst_label)
+                shutil.move(src_img, dst_img)
+            if os.path.exists(src_lbl):
+                shutil.move(src_lbl, dst_lbl)
 
-    # 🧩 Ensure there’s at least one validation image
-    val_img_dir = os.path.join(images_dir, "val")
-    val_lbl_dir = os.path.join(labels_dir, "val")
-    train_img_dir = os.path.join(images_dir, "train")
-    train_lbl_dir = os.path.join(labels_dir, "train")
-
-    if len(os.listdir(val_img_dir)) == 0:
-        print("⚠️ No validation images found. Copying 1 sample from train...")
-        train_imgs = [f for f in os.listdir(train_img_dir) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
-        if train_imgs:
-            img = train_imgs[0]
-            base_name = os.path.splitext(img)[0]
-            shutil.copy2(os.path.join(train_img_dir, img), os.path.join(val_img_dir, img))
-            lbl_src = os.path.join(train_lbl_dir, f"{base_name}.txt")
-            lbl_dst = os.path.join(val_lbl_dir, f"{base_name}.txt")
-            if os.path.exists(lbl_src):
-                shutil.copy2(lbl_src, lbl_dst)
-
-    # Create data.yaml (NO indentation in the YAML content)
+    # Create a clean YAML file (⚠️ Must have no extra indentation)
     yaml_content = (
         f"train: {os.path.join(images_dir, 'train')}\n"
         f"val: {os.path.join(images_dir, 'val')}\n\n"
         f"nc: {nc}\n"
         f"names: {class_names}\n"
     )
+
     with open(data_yaml_path, "w") as f:
         f.write(yaml_content)
 
-    print(f"✅ Dataset split: {len(train_images)} train, {len(val_images)} val")
     print(f"✅ Created data.yaml with {nc} classes: {class_names}")
 
-    # Train YOLO
-    model = YOLO(model_name)
-    model.train(
-        data=data_yaml_path,
-        epochs=epochs,
-        imgsz=imgsz
-    )
+    # --- Train YOLO ---
+    save_dir = os.path.join(BASE_DIR, "runs", "detect")
+    os.makedirs(save_dir, exist_ok=True)
 
-    print("🎯 Training complete! Check 'runs/detect/train/' for results.")
+    try:
+        model = YOLO(model_name)
+        model.train(
+            data=data_yaml_path,
+            epochs=epochs,
+            imgsz=imgsz,
+            project=save_dir,
+            name=f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            exist_ok=True
+        )
+        print("🎯 Training complete! Check runs/detect/ for results.")
+    except Exception as e:
+        import traceback
+        print("❌ YOLO training failed:")
+        traceback.print_exc()
+        raise e
 
 
 def _train():
+    """Manual training endpoint logic"""
     print("🚀 Starting YOLO training...")
     train_yolo_autosplit(
         dataset_dir=DATASET_DIR,
@@ -132,38 +125,46 @@ def _train():
         val_ratio=0.2
     )
 
-    # Safely reload updated model
+    # Reload trained model weights
     with reload_lock:
         import app.utils as utils
-        new_weights = os.path.join(BASE_DIR, "runs", "detect", "train", "weights", "best.pt")
+        weights_dir = os.path.join(BASE_DIR, "runs", "detect")
+        latest_train = sorted(os.listdir(weights_dir))[-1]  # get most recent
+        new_weights = os.path.join(weights_dir, latest_train, "weights", "best.pt")
         if os.path.exists(new_weights):
             utils.yolo = YOLO(new_weights)
             print(f"✅ Model reloaded with new weights: {new_weights}")
+        else:
+            print("⚠️ No best.pt found after training.")
 
 
 def _train_auto(timestamp: str):
-    """Run short fine-tuning on new auto-labeled images."""
+    """Auto fine-tune for new samples"""
     def _run():
-        backup_dataset(DATASET_DIR)
-        subprocess.run([
-            "yolo",
-            "detect",
-            "train",
-            f"model={TRAINED_WEIGHTS if os.path.exists(TRAINED_WEIGHTS) else YOLO_WEIGHTS}",
-            f"data={os.path.join(DATASET_DIR, 'data.yaml')}",
-            "epochs=5",
-            "imgsz=640",
-            f"project={os.path.join(BASE_DIR, 'runs/auto_train')}",
-            f"name=train_{timestamp}",
-            "--exist-ok"
-        ], check=True)
+        try:
+            backup_dataset(DATASET_DIR)
+            subprocess.run([
+                "yolo", "detect", "train",
+                f"model={TRAINED_WEIGHTS if os.path.exists(TRAINED_WEIGHTS) else YOLO_WEIGHTS}",
+                f"data={os.path.join(DATASET_DIR, 'data.yaml')}",
+                "epochs=5",
+                "imgsz=640",
+                f"project={os.path.join(BASE_DIR, 'runs/auto_train')}",
+                f"name=train_{timestamp}",
+                "--exist-ok"
+            ], check=True)
 
-        # Reload updated weights safely
-        with reload_lock:
-            import app.utils as utils
-            new_weights = os.path.join(BASE_DIR, "runs", "auto_train", f"train_{timestamp}", "weights", "best.pt")
-            if os.path.exists(new_weights):
-                utils.yolo = YOLO(new_weights)
-                print(f"✅ Model reloaded after auto-training: {new_weights}")
+            with reload_lock:
+                import app.utils as utils
+                new_weights = os.path.join(BASE_DIR, "runs", "auto_train", f"train_{timestamp}", "weights", "best.pt")
+                if os.path.exists(new_weights):
+                    utils.yolo = YOLO(new_weights)
+                    print(f"✅ Model reloaded after auto-training: {new_weights}")
+                else:
+                    print("⚠️ Auto-train finished but no best.pt found.")
+        except Exception as e:
+            import traceback
+            print("❌ Auto-train failed:")
+            traceback.print_exc()
 
     threading.Thread(target=_run, daemon=True).start()
