@@ -6,23 +6,31 @@
     },
     {
       "id": 1,
-      "name": "Mycotic Infections"
-    },
-    {
-      "id": 2,
       "name": "avian Influenza"
     },
     {
-      "id": 3,
+      "id": 2,
       "name": "blue comb"
     },
     {
+      "id": 3,
+      "name": "coccidiosis"
+    },
+    {
       "id": 4,
-      "name": "fowl cholera"
+      "name": "coccidiosis poops"
     },
     {
       "id": 5,
+      "name": "fowl cholera"
+    },
+    {
+      "id": 6,
       "name": "fowl-pox"
+    },
+    {
+      "id": 7,
+      "name": "mycotic infections"
     }
   ],
   "info": {
