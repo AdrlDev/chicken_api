@@ -12,9 +12,11 @@ reload_lock = threading.Lock()
 
 def backup_dataset(dataset_dir: str):
     """Create a timestamped backup of the dataset before training."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # microseconds for uniqueness
     backup_dir = os.path.join(BASE_DIR, "backups", f"dataset_{timestamp}")
     os.makedirs(os.path.dirname(backup_dir), exist_ok=True)
+    if os.path.exists(backup_dir):
+        shutil.rmtree(backup_dir)
     shutil.copytree(dataset_dir, backup_dir)
     print(f"📦 Dataset backed up to: {backup_dir}")
 
@@ -74,9 +76,9 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt", epoch
             dst_label = os.path.join(labels_dir, subset, f"{base_name}.txt")
 
             if os.path.exists(src_img):
-                shutil.move(src_img, dst_img)
+                shutil.copy2(src_img, dst_img)
             if os.path.exists(src_label):
-                shutil.move(src_label, dst_label)
+                shutil.copy2(src_label, dst_label)
 
     # Create data.yaml
     yaml_content = f"""train: {os.path.join(images_dir, 'train')}
