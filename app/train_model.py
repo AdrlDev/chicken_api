@@ -98,13 +98,13 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt", epoch
             if os.path.exists(lbl_src):
                 shutil.copy2(lbl_src, lbl_dst)
 
-    # Create data.yaml
-    yaml_content = f"""train: {os.path.join(images_dir, 'train')}
-    val: {os.path.join(images_dir, 'val')}
-
-    nc: {nc}
-    names: {class_names}
-    """
+    # Create data.yaml (NO indentation in the YAML content)
+    yaml_content = (
+        f"train: {os.path.join(images_dir, 'train')}\n"
+        f"val: {os.path.join(images_dir, 'val')}\n\n"
+        f"nc: {nc}\n"
+        f"names: {class_names}\n"
+    )
     with open(data_yaml_path, "w") as f:
         f.write(yaml_content)
 
