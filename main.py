@@ -11,7 +11,7 @@ import numpy as np
 import shutil
 from pathlib import Path
 from datetime import datetime
-from app.utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, image_path, image_filename, classes_path
+from app.utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, classes_path
 from app.detection import _run_detection
 
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
@@ -48,6 +48,11 @@ async def auto_label_train(
     """
     try:
         # 1️⃣ Save uploaded image to dataset/images/train
+        # Generate unique filename per request
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        image_filename = f"auto_{timestamp}.jpg"
+        image_path = os.path.join(IMAGES_DIR, image_filename)
+
         Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
         with open(image_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -115,6 +120,8 @@ async def auto_label_train(
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()   # This prints the full Python error to console
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------------
