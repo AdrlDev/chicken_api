@@ -136,33 +136,109 @@ def _train():
             print("⚠️ No best.pt found after training.")
 
 
-def _train_auto(timestamp: str):
-    """Auto fine-tune for new samples"""
+def update_data_yaml(dataset_dir: str):
+    """
+    Regenerate data.yaml automatically based on dataset/images/train & val,
+    and current classes.txt.
+    """
+    images_dir = os.path.join(dataset_dir, "images")
+    classes_path = os.path.join(dataset_dir, "classes.txt")
+    data_yaml_path = os.path.join(dataset_dir, "data.yaml")
+
+    # Read classes
+    if os.path.exists(classes_path):
+        with open(classes_path, "r") as f:
+            class_names = [line.strip() for line in f.readlines() if line.strip()]
+    else:
+        class_names = []
+
+    # Create YAML content
+    yaml_content = (
+        f"train: {os.path.join(images_dir, 'train')}\n"
+        f"val: {os.path.join(images_dir, 'val')}\n\n"
+        f"nc: {len(class_names)}\n"
+        f"names: {class_names}\n"
+    )
+
+    # Write to file
+    with open(data_yaml_path, "w") as f:
+        f.write(yaml_content)
+
+    return data_yaml_path
+
+def _train_auto(epochs: int = 5, imgsz: int = 640):
+    """
+    Incremental in-place YOLO training:
+    - Uses latest trained weights (old best.pt)
+    - Includes all old + new dataset images (train + val)
+    - Updates same YOLO model weights
+    """
     def _run():
         try:
+            # 1️⃣ Backup dataset
             backup_dataset(DATASET_DIR)
-            subprocess.run([
-                "yolo", "detect", "train",
-                f"model={TRAINED_WEIGHTS if os.path.exists(TRAINED_WEIGHTS) else YOLO_WEIGHTS}",
-                f"data={os.path.join(DATASET_DIR, 'data.yaml')}",
-                "epochs=5",
-                "imgsz=640",
-                f"project={os.path.join(BASE_DIR, 'runs/auto_train')}",
-                f"name=train_{timestamp}",
-                "--exist-ok"
-            ], check=True)
 
-            with reload_lock:
-                import app.utils as utils
-                new_weights = utils.get_latest_trained_weights()
-                if os.path.exists(new_weights):
-                    utils.yolo = YOLO(new_weights)
-                    print(f"✅ Model reloaded after auto-training: {new_weights}")
-                else:
-                    print("⚠️ Auto-train finished but no best.pt found.")
+            # 2️⃣ Regenerate data.yaml
+            images_dir = os.path.join(DATASET_DIR, "images")
+            classes_path = os.path.join(DATASET_DIR, "classes.txt")
+            data_yaml_path = os.path.join(DATASET_DIR, "data.yaml")
+
+            if os.path.exists(classes_path):
+                with open(classes_path, "r") as f:
+                    class_names = [line.strip() for line in f.readlines() if line.strip()]
+            else:
+                class_names = []
+
+            yaml_content = (
+                f"train: {os.path.join(images_dir, 'train')}\n"
+                f"val: {os.path.join(images_dir, 'val')}\n\n"
+                f"nc: {len(class_names)}\n"
+                f"names: {class_names}\n"
+            )
+
+            with open(data_yaml_path, "w") as f:
+                f.write(yaml_content)
+
+            # 3️⃣ Determine latest weights
+            latest_weights = TRAINED_WEIGHTS
+            if not os.path.exists(latest_weights):
+                import glob
+                trained_list = sorted(
+                    glob.glob(os.path.join(BASE_DIR, "runs/detect/**/weights/best.pt"), recursive=True)
+                )
+                latest_weights = trained_list[-1] if trained_list else YOLO_WEIGHTS
+
+            print(f"🔁 Incremental auto-train starting from weights: {latest_weights}")
+
+            # 4️⃣ Train using YOLO Python API
+            model = YOLO(latest_weights)
+            # Use same project folder as original training to overwrite best.pt
+            project_dir = os.path.join(BASE_DIR, "runs", "detect")
+            run_name = "train"  # existing folder will be updated with new weights
+
+            model.train(
+                data=data_yaml_path,
+                epochs=epochs,
+                imgsz=imgsz,
+                project=project_dir,
+                name=run_name,
+                exist_ok=True  # overwrite existing run folder
+            )
+
+            # 5️⃣ Reload updated model in memory
+            best_path = os.path.join(project_dir, run_name, "weights", "best.pt")
+            if os.path.exists(best_path):
+                from app import utils
+                with reload_lock:
+                    utils.yolo = YOLO(best_path)
+                    utils.TRAINED_WEIGHTS = best_path
+                    print(f"✅ Model reloaded after incremental training: {best_path}")
+            else:
+                print("⚠️ Incremental train finished but no best.pt found.")
+
         except Exception as e:
             import traceback
-            print("❌ Auto-train failed:")
+            print("❌ Incremental auto-train failed:")
             traceback.print_exc()
 
     threading.Thread(target=_run, daemon=True).start()

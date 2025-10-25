@@ -43,14 +43,17 @@ async def auto_label_train(
 ):
     """
     Upload an image + optional label → auto-label with YOLO or manual label → 
-    update classes.txt → save YOLO label → trigger fine-tuning.
+    update classes.txt → save YOLO label → trigger incremental fine-tuning.
     """
     try:
-        # ✅ 1. Save uploaded image
+        # 1️⃣ Save uploaded image to dataset/images/train
+        image_filename = f"auto_{timestamp}.jpg"
+        image_path = os.path.join(IMAGES_DIR, "train", image_filename)
+        Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
         with open(image_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # ✅ 2. Load existing classes
+        # 2️⃣ Load existing classes
         if os.path.exists(classes_path):
             with open(classes_path, "r") as f:
                 class_names = [line.strip() for line in f.readlines() if line.strip()]
@@ -59,34 +62,26 @@ async def auto_label_train(
 
         detections = []
 
+        # 3️⃣ Manual labeling mode
         if label_name:
-            # ✅ Manual labeling mode
-            print(f"📌 Manual label provided: {label_name}")
-            # Add to class list if new
             if label_name not in class_names:
                 class_names.append(label_name)
-                print(f"🆕 New class added manually: {label_name}")
-
             detections.append({
                 "label": label_name,
                 "confidence": 1.0,
                 "bbox": [0.5, 0.5, 1.0, 1.0]  # full image placeholder
             })
-
         else:
-            # ✅ Auto-label mode using YOLO detection
+            # 4️⃣ Auto-label mode
             results = yolo.predict(source=image_path, conf=0.4, save=False)
-            if not results or len(results[0].boxes) == 0:  # type: ignore
+            if not results or len(results[0].boxes) == 0: # type: ignore
                 raise HTTPException(status_code=400, detail="No detections found in image.")
-
-            for box in results[0].boxes:  # type: ignore
+            
+            for box in results[0].boxes: # type: ignore
                 cls_id = int(box.cls[0].item())
                 auto_label = yolo.names[cls_id]
-
                 if auto_label not in class_names:
                     class_names.append(auto_label)
-                    print(f"🆕 New class added: {auto_label}")
-
                 x_center, y_center, width, height = box.xywhn[0].tolist()
                 detections.append({
                     "label": auto_label,
@@ -94,31 +89,30 @@ async def auto_label_train(
                     "bbox": [x_center, y_center, width, height]
                 })
 
-        # ✅ 3. Save YOLO label file
+        # 5️⃣ Save YOLO label file
         label_filename = image_filename.replace(".jpg", ".txt")
-        label_path = os.path.join(LABELS_DIR, label_filename)
-
+        label_path = os.path.join(LABELS_DIR, "train", label_filename)
+        Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
         with open(label_path, "w") as f:
             for det in detections:
                 label_index = class_names.index(det["label"])
                 x_center, y_center, width, height = det["bbox"]
                 f.write(f"{label_index} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
 
-        # ✅ 4. Save updated class list
+        # 6️⃣ Save updated classes
         with open(classes_path, "w") as f:
             f.write("\n".join(class_names))
 
-        # ✅ 5. Trigger background fine-tuning
-        background_tasks.add_task(_train_auto, timestamp)
+        # 7️⃣ Trigger incremental auto-training (in-place)
+        background_tasks.add_task(_train_auto, epochs=5, imgsz=640)
 
         return JSONResponse({
-            "message": "✅ Image labeled and fine-tuning started.",
+            "message": "✅ Image labeled and incremental fine-tuning started.",
             "mode": "manual" if label_name else "auto",
             "image": image_path,
             "label_file": label_path,
             "label_name": label_name or "auto-detected",
-            "classes": class_names,
-            "train_session": f"train_{timestamp}"
+            "classes": class_names
         })
 
     except Exception as e:
