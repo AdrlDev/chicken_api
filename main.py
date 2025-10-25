@@ -1,5 +1,6 @@
 #main.py
 
+import io
 from fastapi import FastAPI, BackgroundTasks, WebSocket, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
 import os
@@ -13,6 +14,7 @@ from pathlib import Path
 from datetime import datetime
 from app.utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, classes_path
 from app.detection import _run_detection
+from PIL import Image, UnidentifiedImageError
 
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
@@ -43,21 +45,27 @@ async def auto_label_train(
     label_name: str = Form(None)
 ):
     """
-    Upload an image → auto-label or use manual label → save labels in separate 'new' folder
-    → trigger incremental fine-tuning using all data (old + new)
+    Upload an image + optional label → auto-label with YOLO or manual label → 
+    validate image → update classes.txt → save YOLO label → trigger incremental fine-tuning.
     """
     try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        image_filename = f"auto_{timestamp}.jpg"
+        # Generate unique filename
+        image_filename = f"auto_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
+        image_path = os.path.join(IMAGES_DIR, image_filename)
 
-        # 1️⃣ Save uploaded image in a 'new' subfolder
-        new_images_dir = os.path.join(IMAGES_DIR, "new")
-        Path(new_images_dir).mkdir(parents=True, exist_ok=True)
-        image_path = os.path.join(new_images_dir, image_filename)
-        with open(image_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # ✅ Validate and save image
+        file_contents = await file.read()
+        try:
+            img = Image.open(io.BytesIO(file_contents))
+            img.verify()  # verify corruption
+        except (UnidentifiedImageError, Exception) as e:
+            raise HTTPException(status_code=400, detail=f"Invalid/corrupt image: {e}")
 
-        # 2️⃣ Load current classes
+        # Actually save the image
+        with open(image_path, "wb") as f:
+            f.write(file_contents)
+
+        # Load existing classes
         if os.path.exists(classes_path):
             with open(classes_path, "r") as f:
                 class_names = [line.strip() for line in f.readlines() if line.strip()]
@@ -66,7 +74,7 @@ async def auto_label_train(
 
         detections = []
 
-        # 3️⃣ Manual label mode
+        # Manual labeling mode
         if label_name:
             if label_name not in class_names:
                 class_names.append(label_name)
@@ -76,7 +84,7 @@ async def auto_label_train(
                 "bbox": [0.5, 0.5, 1.0, 1.0]  # full image placeholder
             })
         else:
-            # 4️⃣ Auto-label using YOLO
+            # Auto-label mode
             results = yolo.predict(source=image_path, conf=0.4, save=False)
             if not results or len(results[0].boxes) == 0:  # type: ignore
                 raise HTTPException(status_code=400, detail="No detections found in image.")
@@ -93,26 +101,24 @@ async def auto_label_train(
                     "bbox": [x_center, y_center, width, height]
                 })
 
-        # 5️⃣ Save labels in 'new' subfolder
-        new_labels_dir = os.path.join(LABELS_DIR, "new")
-        Path(new_labels_dir).mkdir(parents=True, exist_ok=True)
+        # Save YOLO label file
         label_filename = image_filename.replace(".jpg", ".txt")
-        label_path = os.path.join(new_labels_dir, label_filename)
+        label_path = os.path.join(LABELS_DIR, label_filename)
         with open(label_path, "w") as f:
             for det in detections:
                 label_index = class_names.index(det["label"])
                 x_center, y_center, width, height = det["bbox"]
                 f.write(f"{label_index} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
 
-        # 6️⃣ Save updated classes
+        # Save updated classes
         with open(classes_path, "w") as f:
             f.write("\n".join(class_names))
 
-        # 7️⃣ Trigger incremental training using old + new images
+        # Trigger incremental auto-training (in-place)
         background_tasks.add_task(_train_auto, epochs=5, imgsz=640)
 
         return JSONResponse({
-            "message": "✅ Image labeled and incremental fine-tuning started.",
+            "message": "✅ Image validated, labeled, and incremental fine-tuning started.",
             "mode": "manual" if label_name else "auto",
             "image": image_path,
             "label_file": label_path,
@@ -120,6 +126,8 @@ async def auto_label_train(
             "classes": class_names
         })
 
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
