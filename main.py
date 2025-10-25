@@ -10,7 +10,8 @@ import base64
 import numpy as np
 import shutil
 from pathlib import Path
-from app.utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, timestamp, image_filename, image_path, classes_path
+from datetime import datetime
+from app.utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, image_path, image_filename, classes_path
 from app.detection import _run_detection
 
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
@@ -47,8 +48,6 @@ async def auto_label_train(
     """
     try:
         # 1️⃣ Save uploaded image to dataset/images/train
-        image_filename = f"auto_{timestamp}.jpg"
-        image_path = os.path.join(IMAGES_DIR, "train", image_filename)
         Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
         with open(image_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
