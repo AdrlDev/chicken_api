@@ -43,21 +43,21 @@ async def auto_label_train(
     label_name: str = Form(None)
 ):
     """
-    Upload an image + optional label → auto-label with YOLO or manual label → 
-    update classes.txt → save YOLO label → trigger incremental fine-tuning.
+    Upload an image → auto-label or use manual label → save labels in separate 'new' folder
+    → trigger incremental fine-tuning using all data (old + new)
     """
     try:
-        # 1️⃣ Save uploaded image to dataset/images/train
-        # Generate unique filename per request
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         image_filename = f"auto_{timestamp}.jpg"
-        image_path = os.path.join(IMAGES_DIR, image_filename)
 
-        Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
+        # 1️⃣ Save uploaded image in a 'new' subfolder
+        new_images_dir = os.path.join(IMAGES_DIR, "new")
+        Path(new_images_dir).mkdir(parents=True, exist_ok=True)
+        image_path = os.path.join(new_images_dir, image_filename)
         with open(image_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # 2️⃣ Load existing classes
+        # 2️⃣ Load current classes
         if os.path.exists(classes_path):
             with open(classes_path, "r") as f:
                 class_names = [line.strip() for line in f.readlines() if line.strip()]
@@ -66,7 +66,7 @@ async def auto_label_train(
 
         detections = []
 
-        # 3️⃣ Manual labeling mode
+        # 3️⃣ Manual label mode
         if label_name:
             if label_name not in class_names:
                 class_names.append(label_name)
@@ -76,12 +76,12 @@ async def auto_label_train(
                 "bbox": [0.5, 0.5, 1.0, 1.0]  # full image placeholder
             })
         else:
-            # 4️⃣ Auto-label mode
+            # 4️⃣ Auto-label using YOLO
             results = yolo.predict(source=image_path, conf=0.4, save=False)
-            if not results or len(results[0].boxes) == 0: # type: ignore
+            if not results or len(results[0].boxes) == 0:  # type: ignore
                 raise HTTPException(status_code=400, detail="No detections found in image.")
             
-            for box in results[0].boxes: # type: ignore
+            for box in results[0].boxes:  # type: ignore
                 cls_id = int(box.cls[0].item())
                 auto_label = yolo.names[cls_id]
                 if auto_label not in class_names:
@@ -93,10 +93,11 @@ async def auto_label_train(
                     "bbox": [x_center, y_center, width, height]
                 })
 
-        # 5️⃣ Save YOLO label file
+        # 5️⃣ Save labels in 'new' subfolder
+        new_labels_dir = os.path.join(LABELS_DIR, "new")
+        Path(new_labels_dir).mkdir(parents=True, exist_ok=True)
         label_filename = image_filename.replace(".jpg", ".txt")
-        label_path = os.path.join(LABELS_DIR, label_filename)
-        Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
+        label_path = os.path.join(new_labels_dir, label_filename)
         with open(label_path, "w") as f:
             for det in detections:
                 label_index = class_names.index(det["label"])
@@ -107,7 +108,7 @@ async def auto_label_train(
         with open(classes_path, "w") as f:
             f.write("\n".join(class_names))
 
-        # 7️⃣ Trigger incremental auto-training (in-place)
+        # 7️⃣ Trigger incremental training using old + new images
         background_tasks.add_task(_train_auto, epochs=5, imgsz=640)
 
         return JSONResponse({
@@ -120,8 +121,6 @@ async def auto_label_train(
         })
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()   # This prints the full Python error to console
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------------
