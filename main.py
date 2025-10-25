@@ -95,7 +95,7 @@ async def auto_label_train(
 
         # 5️⃣ Save YOLO label file
         label_filename = image_filename.replace(".jpg", ".txt")
-        label_path = os.path.join(LABELS_DIR, "train", label_filename)
+        label_path = os.path.join(LABELS_DIR, label_filename)
         Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
         with open(label_path, "w") as f:
             for det in detections:
