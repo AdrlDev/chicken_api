@@ -128,9 +128,7 @@ def _train():
     # Reload trained model weights
     with reload_lock:
         import app.utils as utils
-        weights_dir = os.path.join(BASE_DIR, "runs", "detect")
-        latest_train = sorted(os.listdir(weights_dir))[-1]  # get most recent
-        new_weights = os.path.join(weights_dir, latest_train, "weights", "best.pt")
+        new_weights = utils.get_latest_trained_weights()
         if os.path.exists(new_weights):
             utils.yolo = YOLO(new_weights)
             print(f"✅ Model reloaded with new weights: {new_weights}")
@@ -156,7 +154,7 @@ def _train_auto(timestamp: str):
 
             with reload_lock:
                 import app.utils as utils
-                new_weights = os.path.join(BASE_DIR, "runs", "auto_train", f"train_{timestamp}", "weights", "best.pt")
+                new_weights = utils.get_latest_trained_weights()
                 if os.path.exists(new_weights):
                     utils.yolo = YOLO(new_weights)
                     print(f"✅ Model reloaded after auto-training: {new_weights}")
