@@ -199,12 +199,12 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             nc = len(class_names)
 
             # YAML content
-            yaml_content = f"""
-            train: {os.path.join(images_dir, 'train')}
-            val: {os.path.join(images_dir, 'val')}
-            nc: {nc}
-            names: {class_names}
-            """
+            yaml_content = (
+                f"train: '{os.path.join(images_dir, 'train')}'\n"
+                f"val: '{os.path.join(images_dir, 'val')}'\n\n"
+                f"nc: {len(class_names)}\n"
+                f"names: {class_names}\n"
+            )
             with open(data_yaml_path, "w") as f:
                 f.write(yaml_content.strip())
 
