@@ -213,40 +213,20 @@ async def websocket_detect(websocket: WebSocket):
 @app.websocket("/ws/video-detect")
 async def websocket_video_detect(websocket: WebSocket):
     await websocket.accept()
-    print("📡 Client connected for video detection")
+    print("📡 Client connected for video detection (stream mode)")
 
     try:
-        # 1️⃣ Expect a message containing the video file path (sent by frontend)
-        data = await websocket.receive_json()
-        video_path = data.get("video_path")
-
-        if not video_path or not os.path.exists(video_path):
-            await websocket.send_json({"error": "Invalid or missing video path."})
-            await websocket.close()
-            return
-
-        # 2️⃣ Open the video
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            await websocket.send_json({"error": "Cannot open video file."})
-            await websocket.close()
-            return
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_count = 0
-
-        # 3️⃣ Process frame-by-frame and stream detections
         while True:
-            success, frame = cap.read()
-            if not success:
-                break
+            # ✅ Receive binary frame (JPEG bytes)
+            frame_bytes = await websocket.receive_bytes()
 
-            frame_count += 1
-
-            # Optional: skip every Nth frame to reduce load
-            if frame_count % 5 != 0:
+            # Decode image
+            np_img = np.frombuffer(frame_bytes, np.uint8)
+            frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+            if frame is None:
                 continue
 
+            # Run YOLO detection
             results = yolo(frame)
             detections = []
 
@@ -264,19 +244,11 @@ async def websocket_video_detect(websocket: WebSocket):
                         "bbox": [x1, y1, x2, y2]
                     })
 
-            await websocket.send_json({
-                "detections": detections
-            })
-
-            # ⚡ Small sleep to simulate playback rate
-            await asyncio.sleep(0.05)
-
-        cap.release()
-        await websocket.send_json({"status": "completed", "total_frames": frame_count})
-        await websocket.close()
-        print("✅ Video detection completed")
+            # Send result back to client
+            await websocket.send_json(detections)
 
     except Exception as e:
-        print("❌ WebSocket video error:", e)
-        await websocket.send_json({"error": str(e)})
+        print("❌ WebSocket stream error:", e)
+    finally:
         await websocket.close()
+        print("🛑 Client disconnected (stream mode)")
