@@ -10,6 +10,7 @@ import threading
 import base64
 import numpy as np
 import shutil
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from app.utils import DATASET_DIR, IMAGES_DIR, LABELS_DIR, BASE_DIR, yolo, classes_path
@@ -205,3 +206,77 @@ async def websocket_detect(websocket: WebSocket):
     finally:
         await websocket.close()
         print("🛑 WebSocket disconnected")
+
+# ---------------------------------
+# 🎬 WEBSOCKET: VIDEO FILE LIVE DETECTION
+# ---------------------------------
+@app.websocket("/ws/video-detect")
+async def websocket_video_detect(websocket: WebSocket):
+    await websocket.accept()
+    print("📡 Client connected for video detection")
+
+    try:
+        # 1️⃣ Expect a message containing the video file path (sent by frontend)
+        data = await websocket.receive_json()
+        video_path = data.get("video_path")
+
+        if not video_path or not os.path.exists(video_path):
+            await websocket.send_json({"error": "Invalid or missing video path."})
+            await websocket.close()
+            return
+
+        # 2️⃣ Open the video
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            await websocket.send_json({"error": "Cannot open video file."})
+            await websocket.close()
+            return
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_count = 0
+
+        # 3️⃣ Process frame-by-frame and stream detections
+        while True:
+            success, frame = cap.read()
+            if not success:
+                break
+
+            frame_count += 1
+
+            # Optional: skip every Nth frame to reduce load
+            if frame_count % 5 != 0:
+                continue
+
+            results = yolo(frame)
+            detections = []
+
+            for r in results:
+                for box in r.boxes:
+                    conf = float(box.conf[0])
+                    if conf < 0.4:
+                        continue
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    cls = int(box.cls[0])
+                    label = yolo.names[cls]
+                    detections.append({
+                        "label": label,
+                        "confidence": round(conf, 2),
+                        "bbox": [x1, y1, x2, y2]
+                    })
+
+            await websocket.send_json({
+                "detections": detections
+            })
+
+            # ⚡ Small sleep to simulate playback rate
+            await asyncio.sleep(0.05)
+
+        cap.release()
+        await websocket.send_json({"status": "completed", "total_frames": frame_count})
+        await websocket.close()
+        print("✅ Video detection completed")
+
+    except Exception as e:
+        print("❌ WebSocket video error:", e)
+        await websocket.send_json({"error": str(e)})
+        await websocket.close()
