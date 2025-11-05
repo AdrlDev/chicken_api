@@ -6,7 +6,7 @@ import cv2
 import base64
 import threading
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 from pathlib import Path
 from PIL import Image, UnidentifiedImageError
@@ -101,17 +101,32 @@ class AutoLabelResponse(BaseModel):
     label_name: str
     classes: List[str]
 
+# Response model for initial upload response
+class UploadResponse(BaseModel):
+    message: str
+    image_id: str
+    status: str = "processing"
+
+# Response model for checking processing status
+class ProcessingStatusResponse(BaseModel):
+    status: str
+    result: Optional[AutoLabelResponse] = None
+    error: Optional[str] = None
+
+# Dictionary to store processing status
+processing_tasks: Dict[str, Dict] = {}
+
 # ---------------------------------
 # 🐔 AUTO-LABEL ENDPOINT (ASYNC)
 # ---------------------------------
-@app.post("/auto-label-train", response_model=AutoLabelResponse)
+@app.post("/auto-label-train", response_model=UploadResponse)
 async def auto_label_train(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     label_name: str = Form(None)
 ):
     """
-    Upload an image and optionally provide a label for training.
+    Upload an image for processing. Returns immediately with a task ID.
     
     The endpoint supports two modes:
     1. Auto-labeling: Model predicts labels automatically
@@ -122,40 +137,63 @@ async def auto_label_train(
         label_name: Optional manual label name
     
     Returns:
-        AutoLabelResponse: Details about the processed image and training status
+        UploadResponse: Initial response with task ID
     """
+    # Generate unique task ID and filename
+    task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    image_filename = f"auto_{task_id}.jpg"
+    image_path = str(IMAGES_DIR / image_filename)
+    
     try:
-        # Generate unique filename
-        image_filename = f"auto_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
-        image_path = str(IMAGES_DIR / image_filename)
 
-        # Validate and save image
+        # Initial validation of the image
         file_contents = await file.read()
         try:
             img = Image.open(io.BytesIO(file_contents))
-            img.verify()  # verify corruption
-            
-            # Additional image validation
+            img.verify()
             if img.format not in ['JPEG', 'PNG']:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Only JPEG and PNG images are supported"
                 )
-        except UnidentifiedImageError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid image format: {str(e)}"
-            )
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Image validation failed: {str(e)}"
+                detail=f"Invalid image: {str(e)}"
             )
 
-        # Save the validated image
+        # Save the image
         with open(image_path, "wb") as f:
             f.write(file_contents)
 
+        # Store task information
+        processing_tasks[task_id] = {
+            "status": "processing",
+            "image_path": image_path,
+            "label_name": label_name
+        }
+
+        # Start processing in background
+        background_tasks.add_task(
+            process_image,
+            task_id=task_id,
+            image_path=image_path,
+            label_name=label_name
+        )
+
+        return UploadResponse(
+            message="Image uploaded successfully, processing started",
+            image_id=task_id
+        )
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_image(task_id: str, image_path: str, label_name: Optional[str] = None):
+    """Background task to process the image"""
+    try:
         # Load existing classes
         class_names = []
         if CLASSES_PATH.exists():
@@ -176,13 +214,12 @@ async def auto_label_train(
         else:
             # Auto-label mode
             results = yolo.predict(source=image_path, conf=CONFIDENCE_THRESHOLD, save=False)
-            if not results or len(results[0].boxes) == 0: # type: ignore
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No objects detected in the image with sufficient confidence"
-                )
-            
-            for box in results[0].boxes: # type: ignore
+            if not results or len(results[0].boxes) == 0:  # type: ignore
+                processing_tasks[task_id]["status"] = "error"
+                processing_tasks[task_id]["error"] = "No objects detected in the image"
+                return
+
+            for box in results[0].boxes:  # type: ignore
                 cls_id = int(box.cls[0].item())
                 auto_label = yolo.names[cls_id]
                 if auto_label not in class_names:
@@ -195,8 +232,10 @@ async def auto_label_train(
                 ))
 
         # Save YOLO label file
+        image_filename = Path(image_path).name
         label_filename = image_filename.replace(".jpg", ".txt")
         label_path = str(LABELS_DIR / label_filename)
+        
         with open(label_path, "w") as f:
             for det in detections:
                 label_index = class_names.index(det.label)
@@ -207,22 +246,51 @@ async def auto_label_train(
         with open(CLASSES_PATH, "w") as f:
             f.write("\n".join(class_names))
 
-        # Trigger incremental auto-training
-        background_tasks.add_task(_train_auto, epochs=AUTO_TRAIN_EPOCHS, imgsz=AUTO_TRAIN_IMAGE_SIZE)
+        # Store results
+        processing_tasks[task_id].update({
+            "status": "completed",
+            "result": AutoLabelResponse(
+                message="✅ Image labeled successfully",
+                mode="manual" if label_name else "auto",
+                image=image_path,
+                label_file=label_path,
+                label_name=label_name or "auto-detected",
+                classes=class_names
+            )
+        })
 
-        return AutoLabelResponse(
-            message="✅ Image validated, labeled, and incremental fine-tuning started",
-            mode="manual" if label_name else "auto",
-            image=image_path,
-            label_file=label_path,
-            label_name=label_name or "auto-detected",
-            classes=class_names
-        )
+        # Trigger training in background
+        _train_auto(epochs=AUTO_TRAIN_EPOCHS, imgsz=AUTO_TRAIN_IMAGE_SIZE)
 
-    except HTTPException as e:
-        raise e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        processing_tasks[task_id].update({
+            "status": "error",
+            "error": str(e)
+        })
+
+@app.get("/auto-label-train/{task_id}", response_model=ProcessingStatusResponse)
+async def get_processing_status(task_id: str):
+    """
+    Get the status of an image processing task
+    
+    Args:
+        task_id: The ID of the processing task
+        
+    Returns:
+        ProcessingStatusResponse: Current status of the task
+    """
+    if task_id not in processing_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+        
+    task = processing_tasks[task_id]
+    return ProcessingStatusResponse(
+        status=task["status"],
+        result=task.get("result"),
+        error=task.get("error")
+    )
 
 # ---------------------------------
 # 🎥 LIVE DETECTION (Webcam)
