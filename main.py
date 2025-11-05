@@ -338,7 +338,7 @@ async def websocket_detect(websocket: WebSocket):
                 frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
                 
                 if frame is None:
-                    continue
+                    raise ValueError("Failed to decode image")
                     
                 h, w, _ = frame.shape
             except Exception as e:
@@ -347,7 +347,8 @@ async def websocket_detect(websocket: WebSocket):
                 })
                 continue
 
-                # Run detection
+            # Run detection
+            try:
                 results = yolo(frame)
                 detections: List[DetectionResponse] = []
 
@@ -373,6 +374,10 @@ async def websocket_detect(websocket: WebSocket):
                         ))
 
                 await websocket.send_json({"detections": [det.dict() for det in detections]})
+            except Exception as e:
+                await websocket.send_json({
+                    "error": f"Detection error: {str(e)}"
+                })
 
     except WebSocketDisconnect:
         print(f"🛑 Client disconnected normally")
