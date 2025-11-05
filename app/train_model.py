@@ -172,9 +172,12 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
     - Uses latest best.pt weights
     - Merges old + new images/labels
     - Updates TRAINED_WEIGHTS in place
+    - Handles GPU/CPU training efficiently
     """
     def _run():
         try:
+            from app.utils import ModelManager, DEVICE
+
             # 1️⃣ Merge new data into main train folders
             new_images_dir = os.path.join(IMAGES_DIR, "new")
             new_labels_dir = os.path.join(LABELS_DIR, "new")
@@ -198,30 +201,35 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
 
             nc = len(class_names)
 
-            # YAML content
+            # YAML content with proper quoting
             yaml_content = (
-                f"train: '{os.path.join(images_dir, 'train')}'\n"
-                f"val: '{os.path.join(images_dir, 'val')}'\n\n"
-                f"nc: {len(class_names)}\n"
+                f"train: {os.path.join(images_dir, 'train')}\n"
+                f"val: {os.path.join(images_dir, 'val')}\n"
+                f"nc: {nc}\n"
                 f"names: {class_names}\n"
             )
             with open(data_yaml_path, "w") as f:
-                f.write(yaml_content.strip())
+                f.write(yaml_content)
 
-            # 3️⃣ Determine latest weights
-            latest_weights = TRAINED_WEIGHTS if os.path.exists(TRAINED_WEIGHTS) else os.path.join(BASE_DIR, "assets", "yolov8n.pt")
-            print(f"🔁 Auto-train starting from: {latest_weights}")
+            # 3️⃣ Get model from singleton manager
+            model = ModelManager.get_model()
+            print(f"� Training on {DEVICE.upper()}")
 
-            # 4️⃣ Train YOLO
-            model = YOLO(latest_weights)
-            model.train(
-                data=data_yaml_path,
-                epochs=epochs,
-                imgsz=imgsz,
-                project=os.path.join(BASE_DIR, "runs", "detect"),
-                name="train",
-                exist_ok=True
-            )
+            # 4️⃣ Train YOLO with optimized settings for CPU/GPU
+            train_args = {
+                "data": data_yaml_path,
+                "epochs": epochs,
+                "imgsz": imgsz,
+                "project": os.path.join(BASE_DIR, "runs", "detect"),
+                "name": "train",
+                "exist_ok": True,
+                "device": DEVICE,
+                "batch": 8 if DEVICE == "cuda" else 1,  # Smaller batch size for CPU
+                "workers": 4 if DEVICE == "cuda" else 0,  # Disable workers on CPU
+                "verbose": True
+            }
+
+            model.train(**train_args)
 
             # 5️⃣ Update TRAINED_WEIGHTS
             best_path = os.path.join(BASE_DIR, "runs", "detect", "train", "weights", "best.pt")

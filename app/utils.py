@@ -33,7 +33,35 @@ LABELS_DIR = os.path.join(DATASET_DIR, "labels", "train")
 # ---------------------------------
 # 🧠 LOAD INITIAL YOLO MODEL
 # ---------------------------------
-yolo = YOLO(TRAINED_WEIGHTS if os.path.exists(TRAINED_WEIGHTS) else YOLO_WEIGHTS)
+import torch
+
+# Check CUDA availability
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+if DEVICE == "cpu":
+    print("⚠️ Warning: Running on CPU. For better performance, consider using a GPU.")
+
+# Initialize model (singleton pattern)
+class ModelManager:
+    _instance = None
+    
+    @classmethod
+    def get_model(cls):
+        if cls._instance is None:
+            weights_path = TRAINED_WEIGHTS if os.path.exists(TRAINED_WEIGHTS) else YOLO_WEIGHTS
+            print(f"🔄 Loading YOLO model from: {weights_path}")
+            cls._instance = YOLO(weights_path)
+            # Set device and other parameters
+            cls._instance.to(DEVICE)
+            
+            # Disable warnings about pin_memory when no GPU is available
+            if DEVICE == "cpu":
+                import warnings
+                warnings.filterwarnings("ignore", message=".*pin_memory.*")
+        
+        return cls._instance
+
+# Create model instance
+yolo = ModelManager.get_model()
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 image_filename = f"auto_{timestamp}.jpg"
