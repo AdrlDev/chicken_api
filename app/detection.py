@@ -20,7 +20,7 @@ def _run_detection():
             if not ret:
                 break
 
-            results = yolo(frame, stream=True)
+            results = yolo(frame, stream=True) # type: ignore
             for r in results:
                 for box in r.boxes:
                     conf = float(box.conf[0])
@@ -28,7 +28,7 @@ def _run_detection():
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     cls = int(box.cls[0])
-                    label = yolo.names[cls]
+                    label = yolo.names[cls] # type: ignore
                     color = (0, 255, 0) if label.lower() == "healthy" else (0, 0, 255)
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                     cv2.putText(frame, f"{label} {conf:.2f}", (x1, y1 - 10),

@@ -177,18 +177,40 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
     def _run():
         try:
             from app.utils import ModelManager, DEVICE
+            print("🚀 Starting auto-training process...")
 
             # 1️⃣ Merge new data into main train folders
-            new_images_dir = os.path.join(IMAGES_DIR, "new")
-            new_labels_dir = os.path.join(LABELS_DIR, "new")
-            if os.path.exists(new_images_dir):
-                for f in os.listdir(new_images_dir):
-                    shutil.move(os.path.join(new_images_dir, f), IMAGES_DIR)
-                shutil.rmtree(new_images_dir)
-            if os.path.exists(new_labels_dir):
-                for f in os.listdir(new_labels_dir):
-                    shutil.move(os.path.join(new_labels_dir, f), LABELS_DIR)
-                shutil.rmtree(new_labels_dir)
+            try:
+                # Create train directories if they don't exist
+                for d in [os.path.join(IMAGES_DIR, "train"), os.path.join(LABELS_DIR, "train")]:
+                    os.makedirs(d, exist_ok=True)
+
+                new_images_dir = os.path.join(IMAGES_DIR, "new")
+                new_labels_dir = os.path.join(LABELS_DIR, "new")
+                
+                # Move new data to train folders
+                if os.path.exists(new_images_dir):
+                    for f in os.listdir(new_images_dir):
+                        src = os.path.join(new_images_dir, f)
+                        dst = os.path.join(IMAGES_DIR, "train", f)
+                        if os.path.exists(src):
+                            shutil.move(src, dst)
+                    if os.path.exists(new_images_dir):
+                        shutil.rmtree(new_images_dir)
+                
+                if os.path.exists(new_labels_dir):
+                    for f in os.listdir(new_labels_dir):
+                        src = os.path.join(new_labels_dir, f)
+                        dst = os.path.join(LABELS_DIR, "train", f)
+                        if os.path.exists(src):
+                            shutil.move(src, dst)
+                    if os.path.exists(new_labels_dir):
+                        shutil.rmtree(new_labels_dir)
+                        
+                print("✅ Successfully merged new data into training folders")
+            except Exception as e:
+                print(f"❌ Error merging data: {str(e)}")
+                raise
 
             # 2️⃣ Prepare data.yaml
             images_dir = os.path.join(DATASET_DIR, "images")
@@ -211,36 +233,51 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             with open(data_yaml_path, "w") as f:
                 f.write(yaml_content)
 
-            # 3️⃣ Get model from singleton manager
-            model = ModelManager.get_model()
-            print(f"� Training on {DEVICE.upper()}")
+            # 3️⃣ Get latest trained weights to continue training
+            from app.utils import get_latest_trained_weights
+            latest_weights = get_latest_trained_weights()
+            print(f"🔄 Continuing training from weights: {latest_weights}")
+            
+            # Create new model instance with latest weights
+            model = YOLO(latest_weights)
+            print(f"🖥️ Training on {DEVICE.upper()}")
 
             # 4️⃣ Train YOLO with optimized settings for CPU/GPU
+            # Create a timestamped run folder
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_name = f"train_{timestamp}"
+            
             train_args = {
                 "data": data_yaml_path,
                 "epochs": epochs,
                 "imgsz": imgsz,
                 "project": os.path.join(BASE_DIR, "runs", "detect"),
-                "name": "train",
+                "name": run_name,
                 "exist_ok": True,
                 "device": DEVICE,
                 "batch": 8 if DEVICE == "cuda" else 1,  # Smaller batch size for CPU
                 "workers": 4 if DEVICE == "cuda" else 0,  # Disable workers on CPU
-                "verbose": True
+                "verbose": True,
+                "resume": False,  # Don't resume interrupted training
+                "pretrained": True,  # Use pretrained weights
+                "weights": latest_weights  # Continue from latest weights
             }
 
+            print(f"📊 Training args: {train_args}")
             model.train(**train_args)
 
             # 5️⃣ Update TRAINED_WEIGHTS
-            best_path = os.path.join(BASE_DIR, "runs", "detect", "train", "weights", "best.pt")
+            best_path = os.path.join(BASE_DIR, "runs", "detect", run_name, "weights", "best.pt")
             if os.path.exists(best_path):
                 from app import utils
                 with reload_lock:
                     utils.TRAINED_WEIGHTS = best_path
                     utils.yolo = YOLO(best_path)
                     print(f"✅ Model updated with new best.pt: {best_path}")
+                    print(f"🎯 Training results saved in: {os.path.join(BASE_DIR, 'runs', 'detect', run_name)}")
             else:
-                print("⚠️ Auto-train finished but no best.pt found.")
+                print(f"⚠️ Auto-train finished but no best.pt found in {best_path}")
+                print("⚠️ Training might have failed - check the logs above for errors")
 
         except Exception as e:
             import traceback

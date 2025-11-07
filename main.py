@@ -152,7 +152,7 @@ async def auto_label_train(
     # Generate unique task ID and filename
     task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     image_filename = f"auto_{task_id}.jpg"
-    image_path = str(IMAGES_DIR / image_filename)
+    image_path = str(Path(IMAGES_DIR) / image_filename)
     
     try:
 
@@ -197,8 +197,12 @@ async def auto_label_train(
         )
 
     except HTTPException as e:
+        if os.path.exists(image_path):
+            os.unlink(image_path)
         raise e
     except Exception as e:
+        if os.path.exists(image_path):
+            os.unlink(image_path)
         raise HTTPException(status_code=500, detail=str(e))
 
 async def process_image(task_id: str, image_path: str, label_name: str):
@@ -230,7 +234,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         detections = []
 
         # Detect chicken objects in the image
-        results = yolo.predict(source=image_path, conf=CONFIDENCE_THRESHOLD, save=False)
+        results = yolo.predict(source=image_path, conf=CONFIDENCE_THRESHOLD, save=False) # type: ignore
         if not results or len(results[0].boxes) == 0:  # type: ignore
             processing_tasks[task_id]["status"] = "error"
             processing_tasks[task_id]["error"] = "No chicken objects detected in the image"
@@ -450,7 +454,7 @@ async def websocket_detect(websocket: WebSocket):
 
             # Run detection
             try:
-                results = yolo(frame)
+                results = yolo(frame) # type: ignore
                 detections: List[DetectionResponse] = []
 
                 for r in results:
@@ -466,7 +470,7 @@ async def websocket_detect(websocket: WebSocket):
                             continue
                             
                         cls = int(box.cls[0])
-                        label = yolo.names[cls]
+                        label = yolo.names[cls] # type: ignore
                         
                         detections.append(DetectionResponse(
                             label=label,
@@ -521,7 +525,7 @@ async def websocket_video_detect(websocket: WebSocket):
                     continue
 
                 # Run YOLO detection
-                results = yolo(frame)
+                results = yolo(frame) # type: ignore
                 detections: List[DetectionResponse] = []
 
                 for r in results:
@@ -532,7 +536,7 @@ async def websocket_video_detect(websocket: WebSocket):
                             
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
                         cls = int(box.cls[0])
-                        label = yolo.names[cls]
+                        label = yolo.names[cls] # type: ignore
                         
                         detections.append(DetectionResponse(
                             label=label,
