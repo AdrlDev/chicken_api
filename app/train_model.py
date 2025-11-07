@@ -272,39 +272,20 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             if nc == 0:
                 raise ValueError("No classes found in classes.txt")
 
-            # Create data.yaml with absolute paths and optimizations
+            # Create simple data.yaml with only required fields
             yaml_content = {
                 "path": DATASET_DIR,  # Dataset root dir
                 "train": os.path.join(images_dir, "train"),  # Train images
                 "val": os.path.join(images_dir, "val"),      # Val images
+                "test": os.path.join(images_dir, "val"),     # Test images (using val set)
                 "nc": nc,  # Number of classes
-                "names": class_names,  # Class names
-                "optimizer": "AdamW",  # Better for small datasets
-                "lr0": 0.001,  # Initial learning rate
-                "weight_decay": 0.0005,  # Weight decay
-                "warmup_epochs": 3.0,  # Warmup epochs
-                "box": 7.5,  # Box loss gain
-                "cls": 0.5,  # Cls loss gain
-                "dfl": 1.5,  # DFL loss gain
-                "hsv_h": 0.015,  # Hue augmentation
-                "hsv_s": 0.7,  # Saturation augmentation
-                "hsv_v": 0.4,  # Value augmentation
-                "degrees": 10.0,  # Rotation augmentation
-                "translate": 0.1,  # Translation augmentation
-                "scale": 0.5,  # Scale augmentation
-                "shear": 0.0,  # Shear augmentation
-                "perspective": 0.0,  # Perspective augmentation
-                "flipud": 0.0,  # Vertical flip augmentation
-                "fliplr": 0.5,  # Horizontal flip augmentation
-                "mosaic": 0.0,  # Mosaic augmentation (disabled for small datasets)
-                "mixup": 0.0,  # Mixup augmentation (disabled for small datasets)
-                "copy_paste": 0.0  # Copy-paste augmentation (disabled for small datasets)
+                "names": class_names  # Class names
             }
             
-            print("📝 Writing data.yaml with optimized settings")
+            print("📝 Writing data.yaml with dataset configuration")
             import yaml
             with open(data_yaml_path, "w") as f:
-                yaml.safe_dump(yaml_content, f, sort_keys=False)
+                yaml.safe_dump(yaml_content, f, sort_keys=False, default_flow_style=False)
 
             # 3️⃣ Get latest trained weights to continue training
             from app.utils import get_latest_trained_weights
@@ -339,6 +320,9 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             print(f"   - Image size: {imgsz}")
             print(f"   - Classes: {nc}")
             
+            # Use the correct model loading approach
+            model = YOLO(latest_weights)
+            
             train_args = {
                 "data": data_yaml_path,
                 "epochs": epochs,
@@ -350,12 +334,17 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
                 "batch": batch_size,
                 "workers": num_workers,
                 "verbose": True,
-                "resume": False,  # Don't resume interrupted training
-                "pretrained": True,  # Use pretrained weights
-                "weights": latest_weights,  # Continue from latest weights
                 "patience": 50,  # Early stopping patience
-                "save": True,  # Save checkpoints
-                "save_period": 10  # Save every 10 epochs
+                "save_period": 10,  # Save every 10 epochs
+                "lr0": 0.001,  # Initial learning rate
+                "lrf": 0.01,  # Final learning rate
+                "warmup_epochs": 3.0,  # Warmup epochs
+                "optimizer": "AdamW",  # Optimizer
+                "weight_decay": 0.0005,  # Weight decay
+                "momentum": 0.937,  # SGD momentum/Adam beta1
+                "cos_lr": True,  # Use cosine LR scheduler
+                "close_mosaic": 10,  # Disable mosaic augmentation for final epochs
+                "amp": False  # Disable mixed precision training on CPU
             }
 
             print(f"\n📊 Starting training with configuration:")
@@ -363,35 +352,41 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
                 print(f"   {k}: {v}")
             
             try:
-                # Start training
                 print("\n🏃 Training in progress...")
+                print("=" * 50)
+                
+                # Start training with the loaded model
                 results = model.train(**train_args)
                 
-                # Validate training results
+                # After training, check for the new best weights
                 best_path = os.path.join(runs_dir, run_name, "weights", "best.pt")
                 if os.path.exists(best_path):
                     from app import utils
+                    print(f"✅ Training completed successfully!")
+                    print(f"📊 Results saved to: {os.path.join(runs_dir, run_name)}")
                     
-                    # Verify the weights file is valid
+                    # Validate and update weights
                     try:
+                        print("🔄 Validating new weights...")
                         test_model = YOLO(best_path)
-                        print("✅ New weights validated successfully")
                         
-                        # Update model weights
+                        # Update the model
                         with reload_lock:
                             utils.TRAINED_WEIGHTS = best_path
                             utils.yolo = test_model
                             print(f"✅ Model updated with new weights: {best_path}")
-                            print(f"🎯 Training results saved in: {os.path.join(runs_dir, run_name)}")
                     except Exception as e:
-                        print(f"⚠️ New weights validation failed: {str(e)}")
-                        raise
+                        print(f"⚠️ Warning: New weights validation failed: {str(e)}")
+                        print("⚠️ Continuing with previous weights")
                 else:
-                    raise FileNotFoundError(f"Expected weights file not found: {best_path}")
+                    print("⚠️ Warning: No best.pt found after training")
+                    print("⚠️ Continuing with previous weights")
                     
             except Exception as e:
                 print(f"❌ Training failed: {str(e)}")
                 print("⚠️ Model will continue using previous weights")
+                import traceback
+                traceback.print_exc()
                 raise
 
         except Exception as e:
