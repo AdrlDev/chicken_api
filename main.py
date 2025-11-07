@@ -3,6 +3,7 @@
 import io
 import os
 import cv2
+import json
 import base64
 import threading
 import numpy as np
@@ -123,22 +124,31 @@ processing_tasks: Dict[str, Dict] = {}
 async def auto_label_train(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    label_name: str = Form(None)
+    label_name: str = Form(...)  # Make label_name required
 ):
     """
-    Upload an image for processing. Returns immediately with a task ID.
+    Upload an image with a required label for training.
     
-    The endpoint supports two modes:
-    1. Auto-labeling: Model predicts labels automatically
-    2. Manual labeling: User provides a specific label
+    Every image must have a label specified (e.g., 'healthy', 'fowl-pox', etc.).
+    The function will:
+    1. Detect chicken objects in the image
+    2. Label all detected chickens with the provided label
+    3. Save the image and its annotations
+    4. Update the training dataset
     
     Args:
-        file: Image file to process
-        label_name: Optional manual label name
+        file: Image file to process (must be JPEG or PNG)
+        label_name: Required label name (e.g., 'healthy', 'fowl-pox', etc.)
     
     Returns:
         UploadResponse: Initial response with task ID
     """
+    # Validate label name
+    if not label_name or not label_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Label name is required"
+        )
     # Generate unique task ID and filename
     task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     image_filename = f"auto_{task_id}.jpg"
@@ -191,8 +201,15 @@ async def auto_label_train(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-async def process_image(task_id: str, image_path: str, label_name: Optional[str] = None):
-    """Background task to process the image"""
+async def process_image(task_id: str, image_path: str, label_name: str):
+    """
+    Process an uploaded image, detect chickens, and label them.
+    
+    Args:
+        task_id: Unique identifier for this processing task
+        image_path: Path to the uploaded image
+        label_name: The label to apply to all detected chickens
+    """
     try:
         # Load existing classes
         class_names = []
@@ -200,61 +217,77 @@ async def process_image(task_id: str, image_path: str, label_name: Optional[str]
             with open(CLASSES_PATH, "r") as f:
                 class_names = [line.strip() for line in f.readlines() if line.strip()]
 
+        # Add new label to classes if not present
+        if label_name not in class_names:
+            class_names.append(label_name)
+            # Save updated classes immediately
+            with open(CLASSES_PATH, "w") as f:
+                f.write("\n".join(class_names))
+
+        # Get class index for the label
+        label_index = class_names.index(label_name)
+        
         detections = []
 
-        # Manual labeling mode
-        if label_name:
-            if label_name not in class_names:
-                class_names.append(label_name)
+        # Detect chicken objects in the image
+        results = yolo.predict(source=image_path, conf=CONFIDENCE_THRESHOLD, save=False)
+        if not results or len(results[0].boxes) == 0:  # type: ignore
+            processing_tasks[task_id]["status"] = "error"
+            processing_tasks[task_id]["error"] = "No chicken objects detected in the image"
+            return
+
+        # Process each detected chicken
+        for box in results[0].boxes:  # type: ignore
+            # Get normalized bounding box coordinates (YOLO format)
+            x_center, y_center, width, height = box.xywhn[0].tolist()
+            
+            # Create detection with the provided label
             detections.append(DetectionResponse(
                 label=label_name,
-                confidence=1.0,
-                bbox=[0.5, 0.5, 1.0, 1.0]  # full image placeholder
+                confidence=float(box.conf[0]),
+                bbox=[x_center, y_center, width, height]
             ))
-        else:
-            # Auto-label mode
-            results = yolo.predict(source=image_path, conf=CONFIDENCE_THRESHOLD, save=False)
-            if not results or len(results[0].boxes) == 0:  # type: ignore
-                processing_tasks[task_id]["status"] = "error"
-                processing_tasks[task_id]["error"] = "No objects detected in the image"
-                return
-
-            for box in results[0].boxes:  # type: ignore
-                cls_id = int(box.cls[0].item())
-                auto_label = yolo.names[cls_id]
-                if auto_label not in class_names:
-                    class_names.append(auto_label)
-                x_center, y_center, width, height = box.xywhn[0].tolist()
-                detections.append(DetectionResponse(
-                    label=auto_label,
-                    confidence=float(box.conf[0]),
-                    bbox=[x_center, y_center, width, height]
-                ))
 
         # Save YOLO label file
         image_filename = Path(image_path).name
-        label_filename = image_filename.replace(".jpg", ".txt")
-        label_path = str(LABELS_DIR / label_filename)
+        label_filename = Path(image_path).stem + ".txt"
+        label_path = LABELS_DIR / label_filename
         
         with open(label_path, "w") as f:
             for det in detections:
-                label_index = class_names.index(det.label)
-                x_center, y_center, width, height = det.bbox
-                f.write(f"{label_index} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+                # Use the label_index determined earlier for all detections
+                f.write(f"{label_index} {det.bbox[0]:.6f} {det.bbox[1]:.6f} {det.bbox[2]:.6f} {det.bbox[3]:.6f}\n")
 
-        # Save updated classes
-        with open(CLASSES_PATH, "w") as f:
-            f.write("\n".join(class_names))
+        # Move image to dataset/images
+        dataset_img_path = Path(DATASET_DIR) / "images" / image_filename
+        Path(dataset_img_path).parent.mkdir(parents=True, exist_ok=True)
+        os.rename(image_path, dataset_img_path)
+
+        # Update notes.json with metadata
+        notes_path = Path(DATASET_DIR) / "notes.json"
+        notes = {}
+        if notes_path.exists():
+            with open(notes_path, "r") as f:
+                notes = json.load(f)
+
+        notes[image_filename] = {
+            "label": label_name,
+            "upload_date": datetime.now().isoformat(),
+            "detections": len(detections)
+        }
+
+        with open(notes_path, "w") as f:
+            json.dump(notes, f, indent=4)
 
         # Store results
         processing_tasks[task_id].update({
             "status": "completed",
             "result": AutoLabelResponse(
                 message="✅ Image labeled successfully",
-                mode="manual" if label_name else "auto",
-                image=image_path,
-                label_file=label_path,
-                label_name=label_name or "auto-detected",
+                mode="manual",
+                image=str(dataset_img_path),
+                label_file=str(label_path),
+                label_name=label_name,
                 classes=class_names
             )
         })
