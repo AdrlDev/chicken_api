@@ -186,35 +186,42 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
                 print(f"❌ Failed to import required modules: {str(e)}")
                 raise
 
-            # 1️⃣ Merge new data into main train folders
+            # 1️⃣ Organize data into training folders
             try:
                 # Create train directories if they don't exist
-                for d in [os.path.join(IMAGES_DIR, "train"), os.path.join(LABELS_DIR, "train")]:
+                train_img_dir = os.path.join(IMAGES_DIR, "train")
+                train_lbl_dir = os.path.join(LABELS_DIR, "train")
+                val_img_dir = os.path.join(IMAGES_DIR, "val")
+                val_lbl_dir = os.path.join(LABELS_DIR, "val")
+                
+                for d in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
                     os.makedirs(d, exist_ok=True)
 
-                new_images_dir = os.path.join(IMAGES_DIR, "new")
-                new_labels_dir = os.path.join(LABELS_DIR, "new")
+                # Move images and labels from root folders to train
+                img_files = [f for f in os.listdir(IMAGES_DIR) 
+                           if os.path.isfile(os.path.join(IMAGES_DIR, f)) and 
+                           f.lower().endswith(('.jpg', '.jpeg', '.png'))]
                 
-                # Move new data to train folders
-                if os.path.exists(new_images_dir):
-                    for f in os.listdir(new_images_dir):
-                        src = os.path.join(new_images_dir, f)
-                        dst = os.path.join(IMAGES_DIR, "train", f)
-                        if os.path.exists(src):
-                            shutil.move(src, dst)
-                    if os.path.exists(new_images_dir):
-                        shutil.rmtree(new_images_dir)
-                
-                if os.path.exists(new_labels_dir):
-                    for f in os.listdir(new_labels_dir):
-                        src = os.path.join(new_labels_dir, f)
-                        dst = os.path.join(LABELS_DIR, "train", f)
-                        if os.path.exists(src):
-                            shutil.move(src, dst)
-                    if os.path.exists(new_labels_dir):
-                        shutil.rmtree(new_labels_dir)
+                if img_files:
+                    print(f"📦 Found {len(img_files)} images to process")
+                    
+                    for img_file in img_files:
+                        # Move image
+                        src_img = os.path.join(IMAGES_DIR, img_file)
+                        dst_img = os.path.join(train_img_dir, img_file)
+                        if os.path.exists(src_img):
+                            shutil.move(src_img, dst_img)
+                            print(f"✅ Moved image: {img_file}")
+
+                        # Move corresponding label
+                        label_file = os.path.splitext(img_file)[0] + ".txt"
+                        src_lbl = os.path.join(LABELS_DIR, label_file)
+                        dst_lbl = os.path.join(train_lbl_dir, label_file)
+                        if os.path.exists(src_lbl):
+                            shutil.move(src_lbl, dst_lbl)
+                            print(f"✅ Moved label: {label_file}")
                         
-                print("✅ Successfully merged new data into training folders")
+                print("✅ Successfully organized data for training")
             except Exception as e:
                 print(f"❌ Error merging data: {str(e)}")
                 raise
@@ -227,14 +234,30 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             data_yaml_path = os.path.join(DATASET_DIR, "data.yaml")
 
             # Validate directories exist
-            if not os.path.exists(train_dir):
-                raise ValueError(f"Training directory not found: {train_dir}")
+            for d in [train_dir, val_dir]:
+                if not os.path.exists(d):
+                    print(f"⚠️ Directory not found, creating: {d}")
+                    os.makedirs(d, exist_ok=True)
             
             # Count training images
             train_images = [f for f in os.listdir(train_dir) 
                           if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            
+            # If no images in train dir, check parent dir
             if not train_images:
-                raise ValueError("No training images found in dataset")
+                parent_images = [f for f in os.listdir(images_dir) 
+                               if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+                if parent_images:
+                    print(f"🔄 Moving {len(parent_images)} images from parent dir to train dir")
+                    for img in parent_images:
+                        src = os.path.join(images_dir, img)
+                        dst = os.path.join(train_dir, img)
+                        if os.path.exists(src):
+                            shutil.move(src, dst)
+                    train_images = parent_images
+            
+            if not train_images:
+                raise ValueError("No training images found in dataset. Please add images first.")
             
             print(f"📊 Found {len(train_images)} training images")
 
@@ -249,15 +272,39 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             if nc == 0:
                 raise ValueError("No classes found in classes.txt")
 
-            # YAML content with proper quoting
-            yaml_content = (
-                f"train: {os.path.join(images_dir, 'train')}\n"
-                f"val: {os.path.join(images_dir, 'val')}\n"
-                f"nc: {nc}\n"
-                f"names: {class_names}\n"
-            )
+            # Create data.yaml with absolute paths and optimizations
+            yaml_content = {
+                "path": DATASET_DIR,  # Dataset root dir
+                "train": os.path.join(images_dir, "train"),  # Train images
+                "val": os.path.join(images_dir, "val"),      # Val images
+                "nc": nc,  # Number of classes
+                "names": class_names,  # Class names
+                "optimizer": "AdamW",  # Better for small datasets
+                "lr0": 0.001,  # Initial learning rate
+                "weight_decay": 0.0005,  # Weight decay
+                "warmup_epochs": 3.0,  # Warmup epochs
+                "box": 7.5,  # Box loss gain
+                "cls": 0.5,  # Cls loss gain
+                "dfl": 1.5,  # DFL loss gain
+                "hsv_h": 0.015,  # Hue augmentation
+                "hsv_s": 0.7,  # Saturation augmentation
+                "hsv_v": 0.4,  # Value augmentation
+                "degrees": 10.0,  # Rotation augmentation
+                "translate": 0.1,  # Translation augmentation
+                "scale": 0.5,  # Scale augmentation
+                "shear": 0.0,  # Shear augmentation
+                "perspective": 0.0,  # Perspective augmentation
+                "flipud": 0.0,  # Vertical flip augmentation
+                "fliplr": 0.5,  # Horizontal flip augmentation
+                "mosaic": 0.0,  # Mosaic augmentation (disabled for small datasets)
+                "mixup": 0.0,  # Mixup augmentation (disabled for small datasets)
+                "copy_paste": 0.0  # Copy-paste augmentation (disabled for small datasets)
+            }
+            
+            print("📝 Writing data.yaml with optimized settings")
+            import yaml
             with open(data_yaml_path, "w") as f:
-                f.write(yaml_content)
+                yaml.safe_dump(yaml_content, f, sort_keys=False)
 
             # 3️⃣ Get latest trained weights to continue training
             from app.utils import get_latest_trained_weights
