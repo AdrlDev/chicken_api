@@ -176,8 +176,15 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
     """
     def _run():
         try:
-            from app.utils import ModelManager, DEVICE
-            print("🚀 Starting auto-training process...")
+            print("\n🚀 Starting auto-training process...")
+            print("=" * 50)
+            
+            # Import dependencies with error handling
+            try:
+                from app.utils import ModelManager, DEVICE, DATASET_DIR, BASE_DIR
+            except ImportError as e:
+                print(f"❌ Failed to import required modules: {str(e)}")
+                raise
 
             # 1️⃣ Merge new data into main train folders
             try:
@@ -212,16 +219,35 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
                 print(f"❌ Error merging data: {str(e)}")
                 raise
 
-            # 2️⃣ Prepare data.yaml
+            # 2️⃣ Prepare and validate dataset
             images_dir = os.path.join(DATASET_DIR, "images")
+            train_dir = os.path.join(images_dir, "train")
+            val_dir = os.path.join(images_dir, "val")
             classes_path = os.path.join(DATASET_DIR, "classes.txt")
             data_yaml_path = os.path.join(DATASET_DIR, "data.yaml")
 
-            # Load classes
+            # Validate directories exist
+            if not os.path.exists(train_dir):
+                raise ValueError(f"Training directory not found: {train_dir}")
+            
+            # Count training images
+            train_images = [f for f in os.listdir(train_dir) 
+                          if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            if not train_images:
+                raise ValueError("No training images found in dataset")
+            
+            print(f"📊 Found {len(train_images)} training images")
+
+            # Load and validate classes
+            if not os.path.exists(classes_path):
+                raise FileNotFoundError(f"Classes file not found: {classes_path}")
+                
             with open(classes_path, "r") as f:
                 class_names = [line.strip() for line in f if line.strip()]
 
             nc = len(class_names)
+            if nc == 0:
+                raise ValueError("No classes found in classes.txt")
 
             # YAML content with proper quoting
             yaml_content = (
@@ -242,42 +268,84 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             model = YOLO(latest_weights)
             print(f"🖥️ Training on {DEVICE.upper()}")
 
-            # 4️⃣ Train YOLO with optimized settings for CPU/GPU
-            # Create a timestamped run folder
+            # 4️⃣ Configure and validate training settings
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             run_name = f"train_{timestamp}"
+            
+            # Ensure runs directory exists
+            runs_dir = os.path.join(BASE_DIR, "runs", "detect")
+            os.makedirs(runs_dir, exist_ok=True)
+            
+            # Validate weights file
+            if not os.path.exists(latest_weights):
+                raise FileNotFoundError(f"Weights file not found: {latest_weights}")
+            
+            # Optimize training parameters based on system
+            batch_size = 8 if DEVICE == "cuda" else 1
+            num_workers = 4 if DEVICE == "cuda" else 0
+            
+            print(f"💻 Training configuration:")
+            print(f"   - Device: {DEVICE}")
+            print(f"   - Batch size: {batch_size}")
+            print(f"   - Workers: {num_workers}")
+            print(f"   - Epochs: {epochs}")
+            print(f"   - Image size: {imgsz}")
+            print(f"   - Classes: {nc}")
             
             train_args = {
                 "data": data_yaml_path,
                 "epochs": epochs,
                 "imgsz": imgsz,
-                "project": os.path.join(BASE_DIR, "runs", "detect"),
+                "project": runs_dir,
                 "name": run_name,
                 "exist_ok": True,
                 "device": DEVICE,
-                "batch": 8 if DEVICE == "cuda" else 1,  # Smaller batch size for CPU
-                "workers": 4 if DEVICE == "cuda" else 0,  # Disable workers on CPU
+                "batch": batch_size,
+                "workers": num_workers,
                 "verbose": True,
                 "resume": False,  # Don't resume interrupted training
                 "pretrained": True,  # Use pretrained weights
-                "weights": latest_weights  # Continue from latest weights
+                "weights": latest_weights,  # Continue from latest weights
+                "patience": 50,  # Early stopping patience
+                "save": True,  # Save checkpoints
+                "save_period": 10  # Save every 10 epochs
             }
 
-            print(f"📊 Training args: {train_args}")
-            model.train(**train_args)
-
-            # 5️⃣ Update TRAINED_WEIGHTS
-            best_path = os.path.join(BASE_DIR, "runs", "detect", run_name, "weights", "best.pt")
-            if os.path.exists(best_path):
-                from app import utils
-                with reload_lock:
-                    utils.TRAINED_WEIGHTS = best_path
-                    utils.yolo = YOLO(best_path)
-                    print(f"✅ Model updated with new best.pt: {best_path}")
-                    print(f"🎯 Training results saved in: {os.path.join(BASE_DIR, 'runs', 'detect', run_name)}")
-            else:
-                print(f"⚠️ Auto-train finished but no best.pt found in {best_path}")
-                print("⚠️ Training might have failed - check the logs above for errors")
+            print(f"\n📊 Starting training with configuration:")
+            for k, v in train_args.items():
+                print(f"   {k}: {v}")
+            
+            try:
+                # Start training
+                print("\n🏃 Training in progress...")
+                results = model.train(**train_args)
+                
+                # Validate training results
+                best_path = os.path.join(runs_dir, run_name, "weights", "best.pt")
+                if os.path.exists(best_path):
+                    from app import utils
+                    
+                    # Verify the weights file is valid
+                    try:
+                        test_model = YOLO(best_path)
+                        print("✅ New weights validated successfully")
+                        
+                        # Update model weights
+                        with reload_lock:
+                            utils.TRAINED_WEIGHTS = best_path
+                            utils.yolo = test_model
+                            print(f"✅ Model updated with new weights: {best_path}")
+                            print(f"🎯 Training results saved in: {os.path.join(runs_dir, run_name)}")
+                    except Exception as e:
+                        print(f"⚠️ New weights validation failed: {str(e)}")
+                        raise
+                else:
+                    raise FileNotFoundError(f"Expected weights file not found: {best_path}")
+                    
+            except Exception as e:
+                print(f"❌ Training failed: {str(e)}")
+                print("⚠️ Model will continue using previous weights")
+                raise
 
         except Exception as e:
             import traceback
