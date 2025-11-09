@@ -29,3 +29,11 @@ app-debug.apk
 # Misc
 .Rhistory
 .env
+.env.example
+
+# Deployment
+*.service
+*.service.template
+docker-compose.yml
+deploy.sh
+setup.sh

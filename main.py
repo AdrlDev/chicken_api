@@ -7,6 +7,10 @@ import json
 import base64
 import threading
 import numpy as np
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 from typing import List, Optional, Dict
 from datetime import datetime
 from pathlib import Path

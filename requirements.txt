@@ -15,5 +15,12 @@ numpy==1.26.4
 # Data validation and utilities
 pydantic==2.9.2
 
+# Label Studio integration
+label-studio-sdk==0.0.32
+requests>=2.31.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
 # Optional but recommended for stability
 typing-extensions>=4.12.2

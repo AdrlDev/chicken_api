@@ -166,18 +166,41 @@ def update_data_yaml(dataset_dir: str):
 
     return data_yaml_path
 
-def _train_auto(epochs: int = 5, imgsz: int = 640):
+def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
     """
     Incrementally fine-tune YOLO using auto-split dataset:
     - Uses latest best.pt weights
     - Automatically splits dataset into train/val
     - Updates TRAINED_WEIGHTS in place
     - Handles GPU/CPU training efficiently
+    - Optional: Auto-label new images before training
     """
-    def _run():
+    async def _run():
         try:
             print("\n🚀 Starting auto-training process...")
             print("=" * 50)
+            
+            # Auto-label new images if enabled
+            if auto_label:
+                try:
+                    from app.auto_labeler import ChickenAutoLabeler
+                    print("\n🏷️ Running auto-labeling on new images...")
+                    
+                    # Initialize labeler with environment variables
+                    label_studio_url = os.getenv("LABEL_STUDIO_URL", "http://localhost:8080")
+                    api_key = os.getenv("LABEL_STUDIO_API_KEY")
+                    
+                    if not api_key:
+                        print("⚠️ LABEL_STUDIO_API_KEY not set, skipping auto-labeling")
+                    else:
+                        labeler = ChickenAutoLabeler(label_studio_url, api_key)
+                        results = await labeler.predict_and_label()
+                        print(f"✅ Auto-labeled {results['labeled']} images")
+                        if results['errors']:
+                            print(f"⚠️ Encountered {len(results['errors'])} errors during labeling")
+                except Exception as e:
+                    print(f"⚠️ Auto-labeling failed: {str(e)}")
+                    print("Continuing with training...")
             
             # Get latest weights
             from app.utils import get_latest_trained_weights
@@ -215,4 +238,6 @@ def _train_auto(epochs: int = 5, imgsz: int = 640):
             print("❌ Auto-train failed:")
             traceback.print_exc()
 
-    threading.Thread(target=_run, daemon=True).start()
+    import asyncio
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=lambda: loop.run_until_complete(_run()), daemon=True).start()
