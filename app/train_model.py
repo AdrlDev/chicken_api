@@ -106,7 +106,9 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
             imgsz=imgsz,
             project=save_dir,
             name=f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            exist_ok=True
+            exist_ok=True,
+            save=True,        # <--- Ensure weights are saved
+            save_period=1     # Optional: save checkpoints every epoch
         )
         print("🎯 Training complete! Check runs/detect/ for results.")
     except Exception as e:
