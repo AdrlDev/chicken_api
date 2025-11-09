@@ -12,6 +12,10 @@ from app.utils import yolo  # Make sure yolo is callable
 from app.label_studio import get_client
 from pydantic import BaseModel
 from typing import List, Dict
+import shutil
+
+# Path where Nginx serves files
+PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
 
 # Dictionary to store processing status
 processing_tasks: Dict[str, Dict] = {}
@@ -85,6 +89,16 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------------------
         # Prepare Label Studio pre-annotation
         # -------------------------------
+        # After YOLO detection, copy the image for Label Studio
+        dataset_img_path = Path(DATASET_DIR) / "images" / image_filename
+        Path(dataset_img_path).parent.mkdir(parents=True, exist_ok=True)
+        os.rename(image_path, dataset_img_path)  # keep internal copy
+
+        # Copy to public folder for Label Studio
+        public_img_path = PUBLIC_IMAGE_DIR / image_filename
+        shutil.copy(dataset_img_path, public_img_path)
+
+        # Now build the URL
         image_url = f"https://aedev.cloud/dataset/images/{image_filename}"
 
         ls_tasks = [
