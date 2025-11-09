@@ -9,7 +9,6 @@ from app.config import (
     DATASET_DIR,
     LABELS_DIR,
     CLASSES_PATH,
-    CONFIDENCE_THRESHOLD,
     AUTO_TRAIN_EPOCHS,
     AUTO_TRAIN_IMAGE_SIZE,
 )
@@ -19,9 +18,11 @@ import cv2
 import numpy as np
 from PIL import Image
 
+# Minimum contour area to consider a valid object (adjust based on your images)
+MIN_OBJECT_AREA = 500  
+
 PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
 processing_tasks: Dict[str, Dict] = {}
-
 
 class AutoLabelResponse(BaseModel):
     message: str
@@ -34,8 +35,8 @@ class AutoLabelResponse(BaseModel):
 
 async def process_image(task_id: str, image_path: str, label_name: str):
     """
-    Auto-label uploaded image using contour detection to find objects.
-    Each object gets a bounding box automatically.
+    Auto-label uploaded image using contour detection with noise filtering.
+    Only objects larger than MIN_OBJECT_AREA are labeled.
     """
     try:
         ls_client = get_client()
@@ -62,7 +63,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # Blur to reduce noise
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        # Threshold or Canny edges
+        # Thresholding (binary + Otsu)
         _, thresh = cv2.threshold(blur, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
         # Find contours
@@ -77,8 +78,10 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------- CREATE DETECTIONS --------------------
         detections = []
         for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < MIN_OBJECT_AREA:
+                continue  # ignore tiny noisy objects
             x, y, w_box, h_box = cv2.boundingRect(cnt)
-            # Convert to normalized coordinates
             x_center = (x + w_box / 2) / w
             y_center = (y + h_box / 2) / h
             w_norm = w_box / w
@@ -88,6 +91,13 @@ async def process_image(task_id: str, image_path: str, label_name: str):
                 "bbox": [x_center, y_center, w_norm, h_norm],
                 "abs_bbox": [x, y, w_box, h_box]
             })
+
+        if not detections:
+            processing_tasks[task_id] = {
+                "status": "error",
+                "error": "No objects above minimum size detected — please label manually"
+            }
+            return
 
         # -------------------- MOVE IMAGE --------------------
         img_filename = Path(image_path).name
