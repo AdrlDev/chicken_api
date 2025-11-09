@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List
 from app.config import DATASET_DIR, LABELS_DIR, CLASSES_PATH, CONFIDENCE_THRESHOLD, AUTO_TRAIN_EPOCHS, AUTO_TRAIN_IMAGE_SIZE
 from app.train_model import _train_auto
-from app.utils.yolo import yolo  # Make sure yolo is callable
+from app.utils import yolo  # Make sure yolo is callable
 from app.label_studio import get_client
 from app.main import processing_tasks  # Access global task dictionary
 from app.main import AutoLabelResponse
