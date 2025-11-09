@@ -3,6 +3,9 @@ import os
 import requests
 from datetime import datetime, timezone
 import jwt
+import json
+import getpass
+from pathlib import Path
 from label_studio_sdk import Client
 
 def test_direct_api():
@@ -18,38 +21,48 @@ def test_direct_api():
             print(f'URL: {base_url}')
             print(f'Token: {"Found" if refresh_token else "Missing"}')
             return
+
+        # Print token info
+        print('\nCurrent token details:')
+        try:
+            decoded = jwt.decode(refresh_token, options={"verify_signature": False})
+            print(json.dumps(decoded, indent=2))
+        except Exception as e:
+            print('Failed to decode token:', str(e))
         
-        # Get access token
-        print('Getting access token...')
-        response = requests.post(
+        # Try both authentication methods
+        print('\nTrying different auth methods...')
+        
+        # Method 1: Direct token authentication
+        print('\nMethod 1 - Direct Token:')
+        headers = {'Authorization': f'Token {refresh_token}'}
+        response = requests.get(f'{base_url}/api/projects', headers=headers)
+        print(f'Status: {response.status_code}')
+        print('Response:', response.text[:200])
+        
+        # Method 2: Bearer token authentication
+        print('\nMethod 2 - Bearer Token:')
+        headers = {'Authorization': f'Bearer {refresh_token}'}
+        response = requests.get(f'{base_url}/api/projects', headers=headers)
+        print(f'Status: {response.status_code}')
+        print('Response:', response.text[:200])
+        
+        # Method 3: Get new access token first
+        print('\nMethod 3 - Token Refresh:')
+        refresh_response = requests.post(
             f'{base_url}/api/token/refresh',
             json={'refresh': refresh_token},
             headers={'Content-Type': 'application/json'}
         )
+        print('Refresh Status:', refresh_response.status_code)
+        print('Refresh Response:', refresh_response.text[:200])
         
-        if response.status_code != 200:
-            print('❌ Failed to get access token:')
-            print(response.text)
-            return
-            
-        access_token = response.json()['access']
-        print('✅ Got access token')
-        
-        # Test projects endpoint with access token
-        print('\nTesting projects endpoint...')
-        headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get(f'{base_url}/api/projects', headers=headers)
-        
-        if response.status_code != 200:
-            print('❌ Failed to get projects:')
-            print(response.text)
-            return
-            
-        projects = response.json()
-        print('✅ Successfully retrieved projects')
-        print(f'Found {projects["count"]} projects:')
-        for project in projects['results']:
-            print(f'- {project["title"]} (ID: {project["id"]})')
+        if refresh_response.status_code == 200:
+            access_token = refresh_response.json()['access']
+            headers = {'Authorization': f'Bearer {access_token}'}
+            response = requests.get(f'{base_url}/api/projects', headers=headers)
+            print('Projects Status:', response.status_code)
+            print('Projects Response:', response.text[:200])
             
     except Exception as e:
         print('❌ Error during direct API test:', str(e))
@@ -125,14 +138,106 @@ def test_token_info():
     except Exception as e:
         print('❌ Error analyzing token:', str(e))
 
-if __name__ == '__main__':
+def create_refresh_token():
+    """Create a new refresh token through login"""
+    print('\n🔑 Creating New Refresh Token:')
+    try:
+        base_url = os.getenv('LABEL_STUDIO_URL', 'https://labels.aedev.cloud')
+        
+        # Get credentials
+        print('\nPlease enter your Label Studio credentials:')
+        username = input('Username: ')
+        password = getpass.getpass('Password: ')
+        
+        # Login to get tokens
+        print('\nLogging in to Label Studio...')
+        response = requests.post(
+            f'{base_url}/api/auth/login/',
+            json={'username': username, 'password': password},
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        if response.status_code != 200:
+            print('❌ Login failed:')
+            print(response.text)
+            return None
+            
+        tokens = response.json()
+        refresh_token = tokens.get('refresh')
+        
+        if not refresh_token:
+            print('❌ No refresh token in response:')
+            print(json.dumps(tokens, indent=2))
+            return None
+            
+        # Update .env file
+        env_path = Path(os.path.dirname(os.path.abspath(__file__))) / '.env'
+        
+        # Read existing .env content
+        env_content = {}
+        if env_path.exists():
+            with open(env_path, 'r') as f:
+                for line in f:
+                    if '=' in line:
+                        key, value = line.strip().split('=', 1)
+                        env_content[key] = value
+        
+        # Update token
+        env_content['LABEL_STUDIO_URL'] = base_url
+        env_content['LABEL_STUDIO_API_KEY'] = refresh_token
+        
+        # Write back to .env
+        with open(env_path, 'w') as f:
+            for key, value in env_content.items():
+                f.write(f'{key}={value}\n')
+        
+        print('✅ Successfully created new refresh token')
+        print('✅ Updated .env file')
+        
+        # Decode and show token info
+        try:
+            decoded = jwt.decode(refresh_token, options={"verify_signature": False})
+            print('\nToken information:')
+            print(json.dumps(decoded, indent=2))
+        except Exception as e:
+            print('Note: Could not decode token:', str(e))
+        
+        return refresh_token
+        
+    except Exception as e:
+        print('❌ Error creating refresh token:', str(e))
+        return None
+
+def main():
     print('🔍 Label Studio Integration Tests')
     print('================================')
+    print('\nOptions:')
+    print('1. Run tests with current token')
+    print('2. Create new refresh token')
+    print('3. Run both')
+    
+    choice = input('\nEnter your choice (1-3): ').strip()
     
     # Load environment variables
     load_dotenv()
     
-    # Run tests
-    test_token_info()
-    test_direct_api()
-    test_sdk()
+    if choice == '1':
+        test_token_info()
+        test_direct_api()
+        test_sdk()
+    elif choice == '2':
+        create_refresh_token()
+    elif choice == '3':
+        new_token = create_refresh_token()
+        if new_token:
+            print('\nTesting with new token...')
+            # Reload environment variables
+            load_dotenv()
+            test_token_info()
+            test_direct_api()
+            test_sdk()
+    else:
+        print('Invalid choice!')
+
+if __name__ == '__main__':
+    main()
