@@ -25,14 +25,11 @@ def backup_dataset(dataset_dir: str):
 def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
                          epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
     """
-    Automatically split YOLO dataset (from Label Studio) into train/val,
-    create data.yaml, and train YOLOv8.
+    Automatically split YOLO dataset into train/val, create data.yaml,
+    and train YOLOv8 while guaranteeing 'best.pt' is saved.
     """
 
-    # --- Backup before training ---
-    # backup_dataset(dataset_dir)
-
-    # Paths
+    # --- Paths ---
     images_dir = os.path.join(dataset_dir, "images")
     labels_dir = os.path.join(dataset_dir, "labels")
     classes_path = os.path.join(dataset_dir, "classes.txt")
@@ -41,33 +38,32 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
     if not os.path.exists(images_dir) or not os.path.exists(labels_dir):
         raise FileNotFoundError("Missing 'images/' or 'labels/' directory in dataset.")
 
-    # Read class names
+    # --- Read class names ---
     with open(classes_path, "r") as f:
-        class_names = [line.strip() for line in f.readlines() if line.strip()]
+        class_names = [line.strip() for line in f if line.strip()]
     nc = len(class_names)
 
-    # Prepare split directories
+    # --- Prepare train/val directories ---
     for sub in ["train", "val"]:
         os.makedirs(os.path.join(images_dir, sub), exist_ok=True)
         os.makedirs(os.path.join(labels_dir, sub), exist_ok=True)
 
-    # Collect all unsplit images (ignore ones already in /train or /val)
+    # --- Collect all unsplit images ---
     image_files = [
         f for f in os.listdir(images_dir)
         if f.lower().endswith((".jpg", ".jpeg", ".png"))
         and not os.path.isdir(os.path.join(images_dir, f))
     ]
-
     if not image_files:
         raise RuntimeError("❌ No images found in dataset/images")
 
-    # Shuffle and split
+    # --- Shuffle and split ---
     random.shuffle(image_files)
     split_idx = int(len(image_files) * (1 - val_ratio))
     train_images = image_files[:split_idx] or image_files
     val_images = image_files[split_idx:] or image_files[-1:]
 
-    # Move files to train/val
+    # --- Move files to train/val ---
     for subset, files in [("train", train_images), ("val", val_images)]:
         for img_file in files:
             base_name = os.path.splitext(img_file)[0]
@@ -81,14 +77,13 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
             if os.path.exists(src_lbl):
                 shutil.move(src_lbl, dst_lbl)
 
-    # Create a clean YAML file (⚠️ Must have no extra indentation)
+    # --- Create data.yaml ---
     yaml_content = (
         f"train: {os.path.join(images_dir, 'train')}\n"
         f"val: {os.path.join(images_dir, 'val')}\n\n"
         f"nc: {nc}\n"
         f"names: {class_names}\n"
     )
-
     with open(data_yaml_path, "w") as f:
         f.write(yaml_content)
 
@@ -98,6 +93,10 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
     save_dir = os.path.join(BASE_DIR, "runs", "detect")
     os.makedirs(save_dir, exist_ok=True)
 
+    # Generate unique training folder
+    train_name = f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    train_path = os.path.join(save_dir, train_name)
+
     try:
         model = YOLO(model_name)
         model.train(
@@ -105,17 +104,26 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
             epochs=epochs,
             imgsz=imgsz,
             project=save_dir,
-            name=f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            name=train_name,
             exist_ok=True,
-            save=True,        # <--- Ensure weights are saved
-            save_period=1     # Optional: save checkpoints every epoch
+            save=True,          # ✅ Ensure best.pt & last.pt are saved
+            save_period=1       # Optional: checkpoint every epoch
         )
-        print("🎯 Training complete! Check runs/detect/ for results.")
+
+        # After training, path to best.pt
+        best_path = os.path.join(train_path, "weights", "best.pt")
+        if os.path.exists(best_path):
+            print(f"🎯 Training complete! Best weights saved at: {best_path}")
+        else:
+            print("⚠️ Training finished but no best.pt found!")
+
     except Exception as e:
         import traceback
         print("❌ YOLO training failed:")
         traceback.print_exc()
         raise e
+
+    return best_path if os.path.exists(best_path) else None
 
 
 def _train():
