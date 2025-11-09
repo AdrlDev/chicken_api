@@ -14,8 +14,10 @@ from app.config import (
     AUTO_TRAIN_IMAGE_SIZE,
 )
 from app.train_model import _train_auto
-from app.utils import yolo
 from app.label_studio import get_client
+import cv2
+import numpy as np
+from PIL import Image
 
 PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
 processing_tasks: Dict[str, Dict] = {}
@@ -31,6 +33,10 @@ class AutoLabelResponse(BaseModel):
 
 
 async def process_image(task_id: str, image_path: str, label_name: str):
+    """
+    Auto-label uploaded image using contour detection to find objects.
+    Each object gets a bounding box automatically.
+    """
     try:
         ls_client = get_client()
 
@@ -45,24 +51,42 @@ async def process_image(task_id: str, image_path: str, label_name: str):
                 f.write("\n".join(classes))
         label_index = classes.index(label_name)
 
-        # -------------------- PRE-DETECTION --------------------
-        # use YOLO only for pre-detecting chickens (initial bounding boxes)
-        results = yolo.predict(source=image_path, conf=CONFIDENCE_THRESHOLD, save=False) # type: ignore
-        boxes = results[0].boxes if results and len(results[0].boxes) > 0 else [] # type: ignore
+        # -------------------- LOAD IMAGE --------------------
+        img = cv2.imread(str(image_path))
+        if img is None:
+            raise ValueError("Failed to read uploaded image")
 
-        if not boxes:
+        h, w = img.shape[:2]
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # Blur to reduce noise
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Threshold or Canny edges
+        _, thresh = cv2.threshold(blur, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+        # Find contours
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
             processing_tasks[task_id] = {
                 "status": "error",
-                "error": "No chickens detected — please label manually in Label Studio"
+                "error": "No objects detected — please label manually in Label Studio"
             }
             return
 
+        # -------------------- CREATE DETECTIONS --------------------
         detections = []
-        for b in boxes:
-            x, y, w, h = b.xywhn[0].tolist()
+        for cnt in contours:
+            x, y, w_box, h_box = cv2.boundingRect(cnt)
+            # Convert to normalized coordinates
+            x_center = (x + w_box / 2) / w
+            y_center = (y + h_box / 2) / h
+            w_norm = w_box / w
+            h_norm = h_box / h
             detections.append({
                 "label": label_name,
-                "bbox": [x, y, w, h]
+                "bbox": [x_center, y_center, w_norm, h_norm],
+                "abs_bbox": [x, y, w_box, h_box]
             })
 
         # -------------------- MOVE IMAGE --------------------
@@ -71,60 +95,44 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         Path(dataset_img).parent.mkdir(parents=True, exist_ok=True)
         shutil.move(image_path, dataset_img)
 
-        # Public copy for Label Studio
         public_img = PUBLIC_IMAGE_DIR / img_filename
         shutil.copy(dataset_img, public_img)
         image_url = f"https://aedev.cloud/dataset/images/{img_filename}"
 
-        # -------------------- CREATE TASK --------------------
+        # -------------------- CREATE LABEL STUDIO TASK --------------------
         PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
 
-        results_list = [
+        ls_annotations = [
             {
                 "from_name": "label",
                 "to_name": "image",
                 "type": "rectanglelabels",
                 "value": {
-                    "x": (d["bbox"][0] - d["bbox"][2] / 2) * 100,
-                    "y": (d["bbox"][1] - d["bbox"][3] / 2) * 100,
-                    "width": d["bbox"][2] * 100,
-                    "height": d["bbox"][3] * 100,
+                    "x": det["bbox"][0]*100 - det["bbox"][2]*50,
+                    "y": det["bbox"][1]*100 - det["bbox"][3]*50,
+                    "width": det["bbox"][2]*100,
+                    "height": det["bbox"][3]*100,
                     "rotation": 0,
-                    "rectanglelabels": [d["label"]],
-                },
+                    "rectanglelabels": [det["label"]],
+                }
             }
-            for d in detections
+            for det in detections
         ]
 
-        task = await ls_client.tasks.create(
-            data={"image": image_url},
-            project=PROJECT_ID
-        )
-
+        task = await ls_client.tasks.create(data={"image": image_url}, project=PROJECT_ID)
         await ls_client.predictions.create(
             task=task.id,
             model_version="v1-auto",
-            result=results_list
+            result=ls_annotations
         )
 
-        # -------------------- FETCH FINAL LABELS --------------------
-        # Wait for LS to complete annotation (if manual correction is done)
-        # For demo, we fetch existing annotation directly
-        annos = await ls_client.annotations.list(task=task.id) # type: ignore
+        # -------------------- SAVE YOLO LABEL FILE --------------------
         yolo_label_path = LABELS_DIR / f"{Path(image_path).stem}.txt"
         LABELS_DIR.mkdir(parents=True, exist_ok=True)
-
         with open(yolo_label_path, "w") as f:
-            for a in annos:
-                for r in a.result:
-                    if r["type"] == "rectanglelabels":
-                        label = r["value"]["rectanglelabels"][0]
-                        x = (r["value"]["x"] + r["value"]["width"] / 2) / 100
-                        y = (r["value"]["y"] + r["value"]["height"] / 2) / 100
-                        w = r["value"]["width"] / 100
-                        h = r["value"]["height"] / 100
-                        cls_id = classes.index(label)
-                        f.write(f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f}\n")
+            for det in detections:
+                x, y, w_box, h_box = det["bbox"]
+                f.write(f"{label_index} {x:.6f} {y:.6f} {w_box:.6f} {h_box:.6f}\n")
 
         # -------------------- UPDATE NOTES --------------------
         notes_path = Path(DATASET_DIR) / "notes.json"
@@ -146,7 +154,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         processing_tasks[task_id] = {
             "status": "completed",
             "result": AutoLabelResponse(
-                message=f"✅ {len(detections)} boxes uploaded to Label Studio & retraining started",
+                message=f"✅ {len(detections)} objects detected and labeled automatically, retraining started",
                 mode="auto",
                 image=str(dataset_img),
                 label_file=str(yolo_label_path),
