@@ -15,7 +15,7 @@ from typing import List, Optional, Dict
 from datetime import datetime
 from pathlib import Path
 from PIL import Image, UnidentifiedImageError
-from app.label_studio import label_studio  # type: ignore # Import our token manager
+from app.label_studio import get_client
 from fastapi import (
     FastAPI, 
     BackgroundTasks, 
