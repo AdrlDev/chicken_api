@@ -20,6 +20,7 @@ from PIL import Image
 
 # Minimum contour area to consider a valid object (adjust based on your images)
 MIN_OBJECT_AREA = 500  
+MAX_IMAGE_DIM = 1024  # Maximum width or height for resizing
 
 PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
 processing_tasks: Dict[str, Dict] = {}
@@ -34,10 +35,6 @@ class AutoLabelResponse(BaseModel):
 
 
 async def process_image(task_id: str, image_path: str, label_name: str):
-    """
-    Auto-label uploaded image using contour detection with noise filtering.
-    Only objects larger than MIN_OBJECT_AREA are labeled.
-    """
     try:
         ls_client = get_client()
 
@@ -53,20 +50,26 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         label_index = classes.index(label_name)
 
         # -------------------- LOAD IMAGE --------------------
-        img = cv2.imread(str(image_path))
-        if img is None:
+        orig_img = cv2.imread(str(image_path))
+        if orig_img is None:
             raise ValueError("Failed to read uploaded image")
+
+        orig_h, orig_w = orig_img.shape[:2]
+
+        # Resize if too large
+        scale = min(1.0, MAX_IMAGE_DIM / max(orig_w, orig_h))
+        if scale < 1.0:
+            img = cv2.resize(orig_img, (int(orig_w*scale), int(orig_h*scale)))
+        else:
+            img = orig_img.copy()
 
         h, w = img.shape[:2]
 
-        # Convert to grayscale
+        # -------------------- CONTOUR DETECTION --------------------
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # Blur to reduce noise
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        # Thresholding (binary + Otsu)
         _, thresh = cv2.threshold(blur, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-        # Find contours
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             processing_tasks[task_id] = {
@@ -80,12 +83,21 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area < MIN_OBJECT_AREA:
-                continue  # ignore tiny noisy objects
+                continue
             x, y, w_box, h_box = cv2.boundingRect(cnt)
-            x_center = (x + w_box / 2) / w
-            y_center = (y + h_box / 2) / h
-            w_norm = w_box / w
-            h_norm = h_box / h
+
+            # Scale bbox back to original image size
+            if scale < 1.0:
+                x = x / scale
+                y = y / scale
+                w_box = w_box / scale
+                h_box = h_box / scale
+
+            x_center = (x + w_box / 2) / orig_w
+            y_center = (y + h_box / 2) / orig_h
+            w_norm = w_box / orig_w
+            h_norm = h_box / orig_h
+
             detections.append({
                 "label": label_name,
                 "bbox": [x_center, y_center, w_norm, h_norm],
