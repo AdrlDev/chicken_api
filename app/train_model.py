@@ -166,27 +166,26 @@ def update_data_yaml(dataset_dir: str):
 def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
     """
     Incrementally fine-tune YOLO using auto-split dataset:
-    - Uses latest best.pt weights
-    - Automatically splits dataset into train/val
-    - Updates TRAINED_WEIGHTS in place
-    - Handles GPU/CPU training efficiently
-    - Optional: Auto-label new images before training
+    - Adds new images to the existing train/val
+    - Always updates 'runs/detect/train/weights/best.pt'
+    - Auto-labels new images if enabled
     """
+    import asyncio
+
     async def _run():
         try:
             print("\n🚀 Starting auto-training process...")
             print("=" * 50)
-            
-            # Auto-label new images if enabled
+
+            # --- Auto-label new images ---
             if auto_label:
                 try:
                     from app.auto_labeler import ChickenAutoLabeler
                     print("\n🏷️ Running auto-labeling on new images...")
-                    
-                    # Initialize labeler with environment variables
+
                     label_studio_url = os.getenv("LABEL_STUDIO_URL", "http://localhost:8080")
                     api_key = os.getenv("LABEL_STUDIO_API_KEY")
-                    
+
                     if not api_key:
                         print("⚠️ LABEL_STUDIO_API_KEY not set, skipping auto-labeling")
                     else:
@@ -196,44 +195,77 @@ def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
                         if results['errors']:
                             print(f"⚠️ Encountered {len(results['errors'])} errors during labeling")
                 except Exception as e:
-                    print(f"⚠️ Auto-labeling failed: {str(e)}")
-                    print("Continuing with training...")
-            
-            # Get latest weights
+                    print(f"⚠️ Auto-labeling failed: {str(e)}\nContinuing with training...")
+
+            # --- Merge new images into existing train/val ---
+            images_dir = os.path.join(DATASET_DIR, "images")
+            labels_dir = os.path.join(DATASET_DIR, "labels")
+            for subset in ["train", "val"]:
+                os.makedirs(os.path.join(images_dir, subset), exist_ok=True)
+                os.makedirs(os.path.join(labels_dir, subset), exist_ok=True)
+
+            # Collect all unassigned images
+            new_images = [
+                f for f in os.listdir(images_dir)
+                if f.lower().endswith((".jpg", ".jpeg", ".png"))
+                and not os.path.isdir(os.path.join(images_dir, f))
+            ]
+            if new_images:
+                print(f"📥 Found {len(new_images)} new images. Splitting into train/val...")
+                import random
+                random.shuffle(new_images)
+                split_idx = int(len(new_images) * 0.8)
+                train_imgs = new_images[:split_idx] or new_images
+                val_imgs = new_images[split_idx:] or new_images[-1:]
+
+                for img_file in train_imgs:
+                    base_name = os.path.splitext(img_file)[0]
+                    src_img = os.path.join(images_dir, img_file)
+                    src_lbl = os.path.join(labels_dir, f"{base_name}.txt")
+                    dst_img = os.path.join(images_dir, "train", img_file)
+                    dst_lbl = os.path.join(labels_dir, "train", f"{base_name}.txt")
+                    if os.path.exists(src_img):
+                        shutil.move(src_img, dst_img)
+                    if os.path.exists(src_lbl):
+                        shutil.move(src_lbl, dst_lbl)
+
+                for img_file in val_imgs:
+                    base_name = os.path.splitext(img_file)[0]
+                    src_img = os.path.join(images_dir, img_file)
+                    src_lbl = os.path.join(labels_dir, f"{base_name}.txt")
+                    dst_img = os.path.join(images_dir, "val", img_file)
+                    dst_lbl = os.path.join(labels_dir, "val", f"{base_name}.txt")
+                    if os.path.exists(src_img):
+                        shutil.move(src_img, dst_img)
+                    if os.path.exists(src_lbl):
+                        shutil.move(src_lbl, dst_lbl)
+
+            # --- Train YOLO ---
             from app.utils import get_latest_trained_weights
             latest_weights = get_latest_trained_weights()
 
-            try:
-                # Use the existing autosplit training function
-                print("� Starting training with auto-split dataset...")
-                train_yolo_autosplit(
-                    dataset_dir=DATASET_DIR,
-                    model_name=latest_weights,  # Use latest weights for fine-tuning
-                    epochs=epochs,
-                    imgsz=imgsz,
-                    val_ratio=0.2  # 20% validation split
-                )
-                
-                # After training completes, update the model instance
+            print("🎬 Starting incremental training on 'train' folder...")
+            best_path = train_yolo_autosplit(
+                dataset_dir=DATASET_DIR,
+                model_name=latest_weights,
+                epochs=epochs,
+                imgsz=imgsz,
+                val_ratio=0.2
+            )
+
+            # --- Reload YOLO model ---
+            if best_path and os.path.exists(best_path):
+                from app import utils
                 with reload_lock:
-                    import app.utils as utils
-                    new_weights = utils.get_latest_trained_weights()
-                    if os.path.exists(new_weights):
-                        utils.yolo = YOLO(new_weights)
-                        print(f"✅ Model reloaded with new weights: {new_weights}")
-                    else:
-                        print("⚠️ No best.pt found after training.")
-            
-            except Exception as e:
-                import traceback
-                print("❌ Auto-train failed:")
-                traceback.print_exc()
+                    utils.yolo = YOLO(best_path)
+                    print(f"✅ Model reloaded with updated weights: {best_path}")
+            else:
+                print("⚠️ No best.pt found after incremental training!")
 
         except Exception as e:
             import traceback
             print("❌ Auto-train failed:")
             traceback.print_exc()
 
-    import asyncio
     loop = asyncio.new_event_loop()
     threading.Thread(target=lambda: loop.run_until_complete(_run()), daemon=True).start()
