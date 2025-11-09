@@ -1,3 +1,5 @@
+# process_image.py
+
 import os
 import json
 import shutil
@@ -15,14 +17,12 @@ from app.config import (
 from app.train_model import _train_auto
 from app.label_studio import get_client
 import cv2
-import numpy as np
-from PIL import Image
+from app.utils import ModelManager, PUBLIC_IMAGE_DIR
 
-# Minimum contour area to consider a valid object (adjust based on your images)
-MIN_OBJECT_AREA = 500  
-MAX_IMAGE_DIM = 1024  # Maximum width or height for resizing
+# Minimum contour area to consider a valid object
+MIN_OBJECT_AREA = 500
+MAX_IMAGE_DIM = 1024
 
-PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
 processing_tasks: Dict[str, Dict] = {}
 
 class AutoLabelResponse(BaseModel):
@@ -53,61 +53,43 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         orig_img = cv2.imread(str(image_path))
         if orig_img is None:
             raise ValueError("Failed to read uploaded image")
-
         orig_h, orig_w = orig_img.shape[:2]
 
         # Resize if too large
         scale = min(1.0, MAX_IMAGE_DIM / max(orig_w, orig_h))
-        if scale < 1.0:
-            img = cv2.resize(orig_img, (int(orig_w*scale), int(orig_h*scale)))
-        else:
-            img = orig_img.copy()
-
+        img = cv2.resize(orig_img, (int(orig_w*scale), int(orig_h*scale))) if scale < 1.0 else orig_img.copy()
         h, w = img.shape[:2]
 
-        # -------------------- CONTOUR DETECTION --------------------
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        _, thresh = cv2.threshold(blur, 127, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        # -------------------- DETECT CHICKENS USING BASE YOLOv8n --------------------
+        base_model = ModelManager.get_base_yolov8n()
+        results = base_model.predict(img, conf=0.3, save=False)  # adjust confidence if needed
 
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            processing_tasks[task_id] = {
-                "status": "error",
-                "error": "No objects detected — please label manually in Label Studio"
-            }
-            return
-
-        # -------------------- CREATE DETECTIONS --------------------
         detections = []
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < MIN_OBJECT_AREA:
-                continue
-            x, y, w_box, h_box = cv2.boundingRect(cnt)
-
-            # Scale bbox back to original image size
-            if scale < 1.0:
-                x = x / scale
-                y = y / scale
-                w_box = w_box / scale
-                h_box = h_box / scale
-
-            x_center = (x + w_box / 2) / orig_w
-            y_center = (y + h_box / 2) / orig_h
-            w_norm = w_box / orig_w
-            h_norm = h_box / orig_h
-
-            detections.append({
-                "label": label_name,
-                "bbox": [x_center, y_center, w_norm, h_norm],
-                "abs_bbox": [x, y, w_box, h_box]
-            })
+        for r in results:
+            for box in r.boxes: # type: ignore
+                x1, y1, x2, y2 = map(float, box.xyxy[0])
+                # scale box back to original image size
+                if scale < 1.0:
+                    x1 /= scale
+                    y1 /= scale
+                    x2 /= scale
+                    y2 /= scale
+                w_box = x2 - x1
+                h_box = y2 - y1
+                x_center = (x1 + w_box/2) / orig_w
+                y_center = (y1 + h_box/2) / orig_h
+                w_norm = w_box / orig_w
+                h_norm = h_box / orig_h
+                detections.append({
+                    "label": label_name,  # Use frontend label
+                    "bbox": [x_center, y_center, w_norm, h_norm],
+                    "abs_bbox": [x1, y1, w_box, h_box]
+                })
 
         if not detections:
             processing_tasks[task_id] = {
                 "status": "error",
-                "error": "No objects above minimum size detected — please label manually"
+                "error": "No chickens detected — please label manually in Label Studio"
             }
             return
 
@@ -123,7 +105,6 @@ async def process_image(task_id: str, image_path: str, label_name: str):
 
         # -------------------- CREATE LABEL STUDIO TASK --------------------
         PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
-
         ls_annotations = [
             {
                 "from_name": "label",
@@ -169,14 +150,16 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         }
         with open(notes_path, "w") as f:
             json.dump(notes, f, indent=4)
+        
+        isAutoLabel = label_name == None or label_name == ""
 
         # -------------------- TRAIN --------------------
-        _train_auto(epochs=AUTO_TRAIN_EPOCHS, imgsz=AUTO_TRAIN_IMAGE_SIZE)
+        _train_auto(epochs=AUTO_TRAIN_EPOCHS, imgsz=AUTO_TRAIN_IMAGE_SIZE, auto_label=isAutoLabel)
 
         processing_tasks[task_id] = {
             "status": "completed",
             "result": AutoLabelResponse(
-                message=f"✅ {len(detections)} objects detected and labeled automatically, retraining started",
+                message=f"✅ {len(detections)} chickens detected and labeled with '{label_name}', retraining started",
                 mode="auto",
                 image=str(dataset_img),
                 label_file=str(yolo_label_path),

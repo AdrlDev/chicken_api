@@ -7,7 +7,7 @@ import threading
 import subprocess
 from datetime import datetime
 from ultralytics import YOLO  # type: ignore
-from app.utils import BASE_DIR, YOLO_WEIGHTS, DATASET_DIR, TRAINED_WEIGHTS, IMAGES_DIR, LABELS_DIR, DEVICE
+from app.utils import BASE_DIR, YOLO_WEIGHTS, DATASET_DIR
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
@@ -30,7 +30,7 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
     """
 
     # --- Backup before training ---
-    backup_dataset(dataset_dir)
+    # backup_dataset(dataset_dir)
 
     # Paths
     images_dir = os.path.join(dataset_dir, "images")
@@ -224,7 +224,7 @@ def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
                 if os.path.exists(new_weights):
                     from app import utils
                     with reload_lock:
-                        utils.TRAINED_WEIGHTS = new_weights
+                        utils.get_latest_trained_weights = new_weights
                         utils.yolo = YOLO(new_weights)
                         print(f"✅ Model updated with new weights: {new_weights}")
                 else:
