@@ -85,10 +85,11 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------------------
         # Prepare Label Studio pre-annotation
         # -------------------------------
+        image_url = f"https://aedev.cloud/dataset/images/{image_filename}"
 
         ls_tasks = [
             {
-                "data": {"image": str(dataset_img_path)},  # or URL if LS requires
+                "data": {"image": image_url},  # or URL if LS requires
                 "predictions": [
                     {
                         "model_version": "v1",  # optional

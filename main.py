@@ -29,6 +29,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
 
 from app.train_model import _train
 from app.detection import _run_detection
@@ -113,6 +114,10 @@ class ProcessingStatusResponse(BaseModel):
 
 LS_URL = os.getenv("LABEL_STUDIO_URL")
 LS_API_KEY = os.getenv("LABEL_STUDIO_API_KEY")
+
+# Serve dataset/images at /dataset/images
+images_dir = os.path.join(os.getcwd(), "dataset/images")
+app.mount("/dataset/images", StaticFiles(directory=images_dir), name="images")
 
 # ---------------------------------
 # 🐔 AUTO-LABEL ENDPOINT (ASYNC)
