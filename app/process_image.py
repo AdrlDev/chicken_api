@@ -85,8 +85,6 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------------------
         # Prepare Label Studio pre-annotation
         # -------------------------------
-        img = cv2.imread(str(dataset_img_path))
-        img_height, img_width, _ = img.shape # type: ignore
 
         ls_tasks = [
             {
@@ -116,12 +114,17 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         ]
 
         PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
-        try:
-            ls_client.create_tasks(project_id=PROJECT_ID, tasks=ls_tasks) # type: ignore
-            print(f"✅ Pre-annotations uploaded to Label Studio project {PROJECT_ID}")
-        except Exception as ls_err:
-            print(f"⚠️ Failed to upload to Label Studio: {ls_err}")
-
+        # Prepare tasks with the required project ID
+        # Create tasks asynchronously
+        for t in ls_tasks:
+            try:
+                response = await ls_client.tasks.create(
+                    data=t["data"],
+                    project=PROJECT_ID
+                )
+                print("✅ Task created:", response)
+            except Exception as e:
+                print("⚠️ Failed to upload to Label Studio:", str(e))
         # -------------------------------
         # Update dataset metadata (notes.json)
         # -------------------------------
