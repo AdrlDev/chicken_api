@@ -93,6 +93,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
                 "data": {"image": str(dataset_img_path)},  # or URL if LS requires
                 "predictions": [
                     {
+                        "model_version": "v1",  # optional
                         "result": [
                             {
                                 "from_name": "label",
@@ -116,11 +117,8 @@ async def process_image(task_id: str, image_path: str, label_name: str):
 
         PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
         try:
-            try:
-                ls_client.import_pre_annotations(project_id=PROJECT_ID, tasks_with_predictions=ls_tasks)  # type: ignore
-                print(f"✅ Pre-annotations uploaded to Label Studio project {PROJECT_ID}")
-            except Exception as ls_err:
-                print(f"⚠️ Failed to upload to Label Studio: {ls_err}")
+            ls_client.create_tasks(project_id=PROJECT_ID, tasks=ls_tasks) # type: ignore
+            print(f"✅ Pre-annotations uploaded to Label Studio project {PROJECT_ID}")
         except Exception as ls_err:
             print(f"⚠️ Failed to upload to Label Studio: {ls_err}")
 
