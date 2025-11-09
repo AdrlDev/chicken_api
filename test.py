@@ -142,7 +142,8 @@ def create_refresh_token():
     """Create a new refresh token through login"""
     print('\n🔑 Creating New Refresh Token:')
     try:
-        base_url = os.getenv('LABEL_STUDIO_URL', 'https://labels.aedev.cloud')
+        base_url = 'https://labels.aedev.cloud'  # Hardcode the correct URL
+        print(f'Using Label Studio URL: {base_url}')
         
         # Get credentials
         print('\nPlease enter your Label Studio credentials:')
