@@ -92,7 +92,12 @@ def test_token_info():
         # Decode token without verification
         decoded = jwt.decode(token, options={"verify_signature": False})
         
-        print('Token type:', decoded.get('token_type', 'unknown'))
+        token_type = decoded.get('token_type', 'unknown')
+        print('Token type:', token_type)
+        
+        if token_type == 'access':
+            print('⚠️ WARNING: Environment contains an access token instead of a refresh token!')
+            print('Please get a refresh token from Label Studio and update your .env file.')
         
         exp = decoded.get('exp')
         if exp:
@@ -102,10 +107,20 @@ def test_token_info():
                 print('Status: Valid until', exp_dt.isoformat())
             else:
                 print('Status: Expired on', exp_dt.isoformat())
+                print('⚠️ Token has expired! Please get a new token.')
         else:
             print('Status: No expiration found')
             
         print('User ID:', decoded.get('user_id', 'unknown'))
+        print('\nNext Steps:')
+        print('1. Go to https://labels.aedev.cloud')
+        print('2. Click your profile icon in the top right')
+        print('3. Go to Account & Settings')
+        print('4. Click on Access Tokens in the sidebar')
+        print('5. Click "+ Create New Token"')
+        print('6. Give it a name (e.g., "ChickenAI API")')
+        print('7. Copy the new token')
+        print('8. Update your .env file with the new token')
         
     except Exception as e:
         print('❌ Error analyzing token:', str(e))
