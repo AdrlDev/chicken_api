@@ -15,6 +15,7 @@ from typing import List, Optional, Dict
 from datetime import datetime
 from pathlib import Path
 from PIL import Image, UnidentifiedImageError
+from app.label_studio import label_studio  # Import our token manager
 from fastapi import (
     FastAPI, 
     BackgroundTasks, 
@@ -219,6 +220,9 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         label_name: The label to apply to all detected chickens
     """
     try:
+        # Get fresh Label Studio client with updated token
+        ls_client = label_studio.get_client()
+        
         # Load existing classes
         class_names = []
         if CLASSES_PATH.exists():
@@ -286,6 +290,14 @@ async def process_image(task_id: str, image_path: str, label_name: str):
 
         with open(notes_path, "w") as f:
             json.dump(notes, f, indent=4)
+
+        # Try to sync with Label Studio
+        try:
+            # Verify connection is still valid
+            projects = ls_client.list_projects()
+            print(f"Label Studio connection verified, found {len(projects)} projects") # type: ignore
+        except Exception as ls_err:
+            print(f"Label Studio sync error (non-critical): {str(ls_err)}")
 
         # Store results
         processing_tasks[task_id].update({
