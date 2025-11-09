@@ -10,8 +10,20 @@ from app.config import DATASET_DIR, LABELS_DIR, CLASSES_PATH, CONFIDENCE_THRESHO
 from app.train_model import _train_auto
 from app.utils import yolo  # Make sure yolo is callable
 from app.label_studio import get_client
-from app.main import processing_tasks  # Access global task dictionary
-from app.main import AutoLabelResponse
+from pydantic import BaseModel
+from typing import List, Dict
+
+# Dictionary to store processing status
+processing_tasks: Dict[str, Dict] = {}
+
+# Response models for auto-label
+class AutoLabelResponse(BaseModel):
+    message: str
+    mode: str
+    image: str
+    label_file: str
+    label_name: str
+    classes: List[str]
 
 async def process_image(task_id: str, image_path: str, label_name: str):
     """

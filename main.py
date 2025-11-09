@@ -46,7 +46,7 @@ from app.config import (
     AUTO_TRAIN_IMAGE_SIZE,
     WS_MAX_CONNECTIONS
 )
-from app.process_image import process_image
+from app.process_image import process_image, processing_tasks, AutoLabelResponse
 
 # Create necessary directories
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
@@ -99,15 +99,6 @@ async def train_model(background_tasks: BackgroundTasks):
             detail=f"Failed to start training: {str(e)}"
         )
 
-# Response models for auto-label
-class AutoLabelResponse(BaseModel):
-    message: str
-    mode: str
-    image: str
-    label_file: str
-    label_name: str
-    classes: List[str]
-
 # Response model for initial upload response
 class UploadResponse(BaseModel):
     message: str
@@ -119,9 +110,6 @@ class ProcessingStatusResponse(BaseModel):
     status: str
     result: Optional[AutoLabelResponse] = None
     error: Optional[str] = None
-
-# Dictionary to store processing status
-processing_tasks: Dict[str, Dict] = {}
 
 LS_URL = os.getenv("LABEL_STUDIO_URL")
 LS_API_KEY = os.getenv("LABEL_STUDIO_API_KEY")
