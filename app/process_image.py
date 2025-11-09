@@ -116,16 +116,20 @@ async def process_image(task_id: str, image_path: str, label_name: str):
 
         PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
         # Prepare tasks with the required project ID
-        # Create tasks asynchronously
-        for t in ls_tasks:
+        # For each image/task
+        for det_task in ls_tasks:
             try:
-                response = await ls_client.tasks.create(
-                    data=t["data"],
-                    project=PROJECT_ID
+                # 1️⃣ Create task with image URL
+                task = await ls_client.tasks.create(data=det_task["data"], project=PROJECT_ID)
+
+                await ls_client.predictions.create(
+                    task=task.id,
+                    model_version=det_task["predictions"][0].get("model_version", "v1"),
+                    result=det_task["predictions"][0]["result"]
                 )
-                print("✅ Task created:", response)
+                print(f"✅ Task {task_id} created with pre-annotations")
             except Exception as e:
-                print("⚠️ Failed to upload to Label Studio:", str(e))
+                print(f"⚠️ Failed to upload task to Label Studio: {e}")
         # -------------------------------
         # Update dataset metadata (notes.json)
         # -------------------------------
