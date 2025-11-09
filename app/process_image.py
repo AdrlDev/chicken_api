@@ -43,11 +43,25 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         if CLASSES_PATH.exists():
             with open(CLASSES_PATH, "r") as f:
                 classes = [line.strip() for line in f if line.strip()]
-        if label_name not in classes:
+
+        # Normalize for comparison (case-insensitive)
+        classes_lower = [c.lower() for c in classes]
+        label_lower = label_name.lower() if label_name else None
+
+        # Add label if new
+        if label_lower and label_lower not in classes_lower:
             classes.append(label_name)
-            with open(CLASSES_PATH, "w") as f:
-                f.write("\n".join(classes))
-        label_index = classes.index(label_name)
+            classes_lower.append(label_lower)
+
+        # Remove labels not in frontend (optional, if you want syncing)
+        # classes = [c for c in classes if c.lower() in classes_lower]
+
+        # Save updated classes.txt
+        with open(CLASSES_PATH, "w") as f:
+            f.write("\n".join(classes) + "\n")
+
+        # Get the index after update
+        label_index = classes_lower.index(label_lower) if label_lower else 0
 
         # -------------------- LOAD IMAGE --------------------
         orig_img = cv2.imread(str(image_path))
