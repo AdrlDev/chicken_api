@@ -9,11 +9,11 @@ torchvision>=0.16.0
 
 # Image and array processing
 opencv-python==4.10.0.84
-pillow==10.4.0
+pillow>=9.0.0,<11.0.0
 numpy==1.26.4
 
 # Data validation and utilities
-pydantic==2.9.2
+pydantic>=2.0.0
 
 # Label Studio integration
 label-studio-sdk==2.0.13
