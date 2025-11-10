@@ -21,6 +21,55 @@ def backup_dataset(dataset_dir: str):
     shutil.copytree(dataset_dir, backup_dir, dirs_exist_ok=True)
     print(f"📦 Dataset backed up to: {backup_dir}")
 
+def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0.2):
+    """
+    Merge only NEW images (not already in train/val) into dataset.
+    Keeps existing data and splits new ones into train/val.
+    """
+    # Prepare folders
+    for subset in ["train", "val"]:
+        os.makedirs(os.path.join(images_dir, subset), exist_ok=True)
+        os.makedirs(os.path.join(labels_dir, subset), exist_ok=True)
+
+    # Find new (unassigned) images
+    new_images = [
+        f for f in os.listdir(images_dir)
+        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        and not os.path.isdir(os.path.join(images_dir, f))
+    ]
+
+    if not new_images:
+        print("ℹ️ No new images found to merge.")
+        return 0
+
+    import random
+    random.shuffle(new_images)
+    split_idx = int(len(new_images) * (1 - val_ratio))
+    train_imgs = new_images[:split_idx] or new_images
+    val_imgs = new_images[split_idx:] or new_images[-1:]
+
+    # Move new images into proper folders
+    moved_count = 0
+    for subset, files in [("train", train_imgs), ("val", val_imgs)]:
+        for img_file in files:
+            base = os.path.splitext(img_file)[0]
+            src_img = os.path.join(images_dir, img_file)
+            src_lbl = os.path.join(labels_dir, f"{base}.txt")
+            dst_img = os.path.join(images_dir, subset, img_file)
+            dst_lbl = os.path.join(labels_dir, subset, f"{base}.txt")
+
+            # Skip if already exists in train/val
+            if os.path.exists(dst_img):
+                continue
+
+            shutil.move(src_img, dst_img)
+            if os.path.exists(src_lbl):
+                shutil.move(src_lbl, dst_lbl)
+            moved_count += 1
+
+    print(f"📥 Merged {moved_count} new images into dataset.")
+    return moved_count
+
 
 def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
                          epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
@@ -31,61 +80,31 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
     # Paths
     images_dir = os.path.join(dataset_dir, "images")
     labels_dir = os.path.join(dataset_dir, "labels")
-    classes_path = os.path.join(dataset_dir, "classes.txt")
     data_yaml_path = os.path.join(dataset_dir, "data.yaml")
     save_dir = os.path.join(BASE_DIR, "runs", "detect")
     train_name = "train"  # always the same folder
     train_path = os.path.join(save_dir, train_name)
 
-    # --- Prepare directories ---
-    for sub in ["train", "val"]:
-        os.makedirs(os.path.join(images_dir, sub), exist_ok=True)
-        os.makedirs(os.path.join(labels_dir, sub), exist_ok=True)
+    # --- Merge only new data ---
+    merged = safe_merge_new_images(images_dir, labels_dir, val_ratio)
+    if merged == 0:
+        train_dir = os.path.join(images_dir, "train")
+        val_dir = os.path.join(images_dir, "val")
+        if not os.listdir(train_dir) and not os.listdir(val_dir):
+            raise RuntimeError("❌ No training data found! Both train/val are empty.")
 
-    # --- Split dataset ---
-    image_files = [f for f in os.listdir(images_dir)
-                   if f.lower().endswith((".jpg", ".jpeg", ".png"))
-                   and not os.path.isdir(os.path.join(images_dir, f))]
-
-    if not image_files:
-        raise RuntimeError("❌ No images found in dataset/images")
-
-    random.shuffle(image_files)
-    split_idx = int(len(image_files) * (1 - val_ratio))
-    train_images = image_files[:split_idx] or image_files
-    val_images = image_files[split_idx:] or image_files[-1:]
-
-    for subset, files in [("train", train_images), ("val", val_images)]:
-        for img_file in files:
-            base_name = os.path.splitext(img_file)[0]
-            src_img = os.path.join(images_dir, img_file)
-            src_lbl = os.path.join(labels_dir, f"{base_name}.txt")
-            dst_img = os.path.join(images_dir, subset, img_file)
-            dst_lbl = os.path.join(labels_dir, subset, f"{base_name}.txt")
-            if os.path.exists(src_img):
-                shutil.move(src_img, dst_img)
-            if os.path.exists(src_lbl):
-                shutil.move(src_lbl, dst_lbl)
-
-    # --- Create data.yaml ---
-    with open(classes_path, "r") as f:
-        class_names = [line.strip() for line in f if line.strip()]
-    nc = len(class_names)
-
-    yaml_content = (
-        f"train: {os.path.join(images_dir, 'train')}\n"
-        f"val: {os.path.join(images_dir, 'val')}\n\n"
-        f"nc: {nc}\n"
-        f"names: {class_names}\n"
-    )
-    with open(data_yaml_path, "w") as f:
-        f.write(yaml_content)
+    update_data_yaml(images_dir)
 
     # --- Train YOLO ---
     os.makedirs(save_dir, exist_ok=True)
 
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"🧠 Training on device: {device}")
+
     try:
         model = YOLO(model_name)
+        model.to(device)
         model.train(
             data=data_yaml_path,
             epochs=epochs,
@@ -151,8 +170,8 @@ def update_data_yaml(dataset_dir: str):
 
     # Create YAML content
     yaml_content = (
-        f"train: {os.path.join(images_dir, 'train')}\n"
-        f"val: {os.path.join(images_dir, 'val')}\n\n"
+        f"train: {os.path.abspath(os.path.join(images_dir, 'train'))}\n"
+        f"val: {os.path.abspath(os.path.join(images_dir, 'val'))}\n\n"
         f"nc: {len(class_names)}\n"
         f"names: {class_names}\n"
     )
@@ -197,49 +216,6 @@ def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
                 except Exception as e:
                     print(f"⚠️ Auto-labeling failed: {str(e)}\nContinuing with training...")
 
-            # --- Merge new images into existing train/val ---
-            images_dir = os.path.join(DATASET_DIR, "images")
-            labels_dir = os.path.join(DATASET_DIR, "labels")
-            for subset in ["train", "val"]:
-                os.makedirs(os.path.join(images_dir, subset), exist_ok=True)
-                os.makedirs(os.path.join(labels_dir, subset), exist_ok=True)
-
-            # Collect all unassigned images
-            new_images = [
-                f for f in os.listdir(images_dir)
-                if f.lower().endswith((".jpg", ".jpeg", ".png"))
-                and not os.path.isdir(os.path.join(images_dir, f))
-            ]
-            if new_images:
-                print(f"📥 Found {len(new_images)} new images. Splitting into train/val...")
-                import random
-                random.shuffle(new_images)
-                split_idx = int(len(new_images) * 0.8)
-                train_imgs = new_images[:split_idx] or new_images
-                val_imgs = new_images[split_idx:] or new_images[-1:]
-
-                for img_file in train_imgs:
-                    base_name = os.path.splitext(img_file)[0]
-                    src_img = os.path.join(images_dir, img_file)
-                    src_lbl = os.path.join(labels_dir, f"{base_name}.txt")
-                    dst_img = os.path.join(images_dir, "train", img_file)
-                    dst_lbl = os.path.join(labels_dir, "train", f"{base_name}.txt")
-                    if os.path.exists(src_img):
-                        shutil.move(src_img, dst_img)
-                    if os.path.exists(src_lbl):
-                        shutil.move(src_lbl, dst_lbl)
-
-                for img_file in val_imgs:
-                    base_name = os.path.splitext(img_file)[0]
-                    src_img = os.path.join(images_dir, img_file)
-                    src_lbl = os.path.join(labels_dir, f"{base_name}.txt")
-                    dst_img = os.path.join(images_dir, "val", img_file)
-                    dst_lbl = os.path.join(labels_dir, "val", f"{base_name}.txt")
-                    if os.path.exists(src_img):
-                        shutil.move(src_img, dst_img)
-                    if os.path.exists(src_lbl):
-                        shutil.move(src_lbl, dst_lbl)
-
             # --- Train YOLO ---
             from app.utils import get_latest_trained_weights
             latest_weights = get_latest_trained_weights()
@@ -267,5 +243,4 @@ def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
             print("❌ Auto-train failed:")
             traceback.print_exc()
 
-    loop = asyncio.new_event_loop()
-    threading.Thread(target=lambda: loop.run_until_complete(_run()), daemon=True).start()
+    threading.Thread(target=lambda: asyncio.run(_run()), daemon=True).start()
