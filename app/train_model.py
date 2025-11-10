@@ -7,7 +7,7 @@ import threading
 import subprocess
 from datetime import datetime
 from ultralytics import YOLO  # type: ignore
-from app.utils import BASE_DIR, DATASET_DIR, get_latest_trained_weights
+from app.utils import BASE_DIR, DATASET_DIR, yoloV8n, yolo
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
@@ -131,10 +131,10 @@ def train_yolo_autosplit(dataset_dir: str,
     # --- Train YOLO ---
     try:
         if start_weights:
-            model = YOLO(start_weights)
+            model = yolo
         else:
             # Train fresh: initialize a new model directly on uploaded images
-            model = YOLO(get_latest_trained_weights())  # empty YOLO model
+            model = yoloV8n  # empty YOLO model
         model.to(device)
         model.train(
             data=data_yaml_path,
@@ -143,8 +143,6 @@ def train_yolo_autosplit(dataset_dir: str,
             project=save_dir,
             name=train_name,
             exist_ok=True,
-            save=True,
-            save_period=1
         )
 
         # Ensure best.pt is always saved
