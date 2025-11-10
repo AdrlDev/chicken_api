@@ -7,7 +7,8 @@ import threading
 import subprocess
 from datetime import datetime
 from ultralytics import YOLO  # type: ignore
-from app.utils import BASE_DIR, YOLO_WEIGHTS, DATASET_DIR
+from app.utils import BASE_DIR, DATASET_DIR
+from ultralytics.yolo.engine.model import YOLO as YOLOModel
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
@@ -113,7 +114,7 @@ def train_yolo_autosplit(dataset_dir: str,
         if not os.listdir(train_dir) and not os.listdir(val_dir):
             raise RuntimeError("❌ No training data found! Both train/val are empty.")
 
-    update_data_yaml(dataset_dir)
+    data_yaml_path = update_data_yaml(dataset_dir)
 
     # --- Device info ---
     import torch
@@ -134,7 +135,7 @@ def train_yolo_autosplit(dataset_dir: str,
             model = YOLO(start_weights)
         else:
             # Train fresh: initialize a new model directly on uploaded images
-            model = YOLO()  # empty YOLO model
+            model = YOLOModel(data_yaml_path)  # empty YOLO model
         model.to(device)
         model.train(
             data=data_yaml_path,
