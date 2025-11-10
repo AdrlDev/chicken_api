@@ -25,13 +25,14 @@ def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0
     """
     Merge only NEW images (not already in train/val) into dataset.
     Keeps existing data and splits new ones into train/val.
+    Skips missing files safely.
     """
     # Prepare folders
     for subset in ["train", "val"]:
         os.makedirs(os.path.join(images_dir, subset), exist_ok=True)
         os.makedirs(os.path.join(labels_dir, subset), exist_ok=True)
 
-    # Find new (unassigned) images
+    # Find new (unassigned) images in the root of images_dir
     new_images = [
         f for f in os.listdir(images_dir)
         if f.lower().endswith((".jpg", ".jpeg", ".png"))
@@ -41,7 +42,10 @@ def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0
     if not new_images:
         print("ℹ️ No new images found to merge.")
         return 0
+    else:
+        print(f"📸 Found {len(new_images)} unassigned images to merge.")
 
+    # Shuffle and split
     import random
     random.shuffle(new_images)
     split_idx = int(len(new_images) * (1 - val_ratio))
@@ -58,34 +62,50 @@ def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0
             dst_img = os.path.join(images_dir, subset, img_file)
             dst_lbl = os.path.join(labels_dir, subset, f"{base}.txt")
 
-            # Skip if already exists in train/val
+            # Skip if destination already exists
             if os.path.exists(dst_img):
                 continue
 
-            shutil.move(src_img, dst_img)
-            if os.path.exists(src_lbl):
-                shutil.move(src_lbl, dst_lbl)
-            moved_count += 1
+            # Skip if source image is missing
+            if not os.path.exists(src_img):
+                print(f"⚠️ Skipping missing image: {src_img}")
+                continue
+
+            # Move safely
+            try:
+                shutil.move(src_img, dst_img)
+                if os.path.exists(src_lbl):
+                    shutil.move(src_lbl, dst_lbl)
+                moved_count += 1
+            except Exception as move_err:
+                print(f"⚠️ Failed to move {img_file}: {move_err}")
+                continue
 
     print(f"📥 Merged {moved_count} new images into dataset.")
     return moved_count
 
 
-def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
-                         epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
+def train_yolo_autosplit(dataset_dir: str,
+                         epochs: int = 50,
+                         imgsz: int = 640,
+                         val_ratio: float = 0.2):
     """
-    Train YOLO on the dataset, updating the existing 'train' folder with new data.
+    Train YOLO on the dataset using ONLY uploaded images:
+    - If best.pt exists, continue training from it
+    - If no best.pt, train fresh on new images and create best.pt
     """
 
-    # Paths
     images_dir = os.path.join(dataset_dir, "images")
     labels_dir = os.path.join(dataset_dir, "labels")
     data_yaml_path = os.path.join(dataset_dir, "data.yaml")
     save_dir = os.path.join(BASE_DIR, "runs", "detect")
-    train_name = "train"  # always the same folder
+    train_name = "train"
     train_path = os.path.join(save_dir, train_name)
+    weights_dir = os.path.join(train_path, "weights")
+    os.makedirs(weights_dir, exist_ok=True)
+    best_weights_path = os.path.join(weights_dir, "best.pt")
 
-    # --- Merge only new data ---
+    # --- Merge new images ---
     merged = safe_merge_new_images(images_dir, labels_dir, val_ratio)
     if merged == 0:
         train_dir = os.path.join(images_dir, "train")
@@ -93,36 +113,49 @@ def train_yolo_autosplit(dataset_dir: str, model_name: str = "yolov8n.pt",
         if not os.listdir(train_dir) and not os.listdir(val_dir):
             raise RuntimeError("❌ No training data found! Both train/val are empty.")
 
-    update_data_yaml(images_dir)
+    update_data_yaml(dataset_dir)
 
-    # --- Train YOLO ---
-    os.makedirs(save_dir, exist_ok=True)
-
+    # --- Device info ---
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🧠 Training on device: {device}")
 
+    # --- Determine starting weights ---
+    if os.path.exists(best_weights_path):
+        print(f"🔄 Continuing training from existing best.pt: {best_weights_path}")
+        start_weights = best_weights_path
+    else:
+        print("🆕 No previous best.pt found, training fresh on uploaded images.")
+        start_weights = None  # no fallback model
+
+    # --- Train YOLO ---
     try:
-        model = YOLO(model_name)
+        if start_weights:
+            model = YOLO(start_weights)
+        else:
+            # Train fresh: initialize a new model directly on uploaded images
+            model = YOLO()  # empty YOLO model
         model.to(device)
         model.train(
             data=data_yaml_path,
             epochs=epochs,
             imgsz=imgsz,
             project=save_dir,
-            name=train_name,   # same folder every time
-            exist_ok=True,     # overwrite existing folder
+            name=train_name,
+            exist_ok=True,
             save=True,
             save_period=1
         )
 
-        best_path = os.path.join(train_path, "weights", "best.pt")
-        if os.path.exists(best_path):
-            print(f"🎯 Best weights updated at: {best_path}")
+        # Ensure best.pt is always saved
+        source_best = os.path.join(save_dir, train_name, "weights", "best.pt")
+        if os.path.exists(source_best):
+            shutil.copy(source_best, best_weights_path)
+            print(f"🎯 Best weights saved at: {best_weights_path}")
         else:
-            print("⚠️ No best.pt found after training!")
+            raise RuntimeError("❌ Training finished but no best.pt was created!")
 
-        return best_path if os.path.exists(best_path) else None
+        return best_weights_path
 
     except Exception as e:
         import traceback
@@ -135,7 +168,6 @@ def _train():
     print("🚀 Starting YOLO training...")
     train_yolo_autosplit(
         dataset_dir=DATASET_DIR,
-        model_name=YOLO_WEIGHTS,
         epochs=100,
         imgsz=640,
         val_ratio=0.2
@@ -184,8 +216,9 @@ def update_data_yaml(dataset_dir: str):
 
 def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
     """
-    Incrementally fine-tune YOLO using auto-split dataset:
-    - Adds new images to the existing train/val
+    Incrementally fine-tune YOLO using uploaded images:
+    - If best.pt exists, continue training from it
+    - If no best.pt, train fresh on uploaded images
     - Always updates 'runs/detect/train/weights/best.pt'
     - Auto-labels new images if enabled
     """
@@ -216,27 +249,31 @@ def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
                 except Exception as e:
                     print(f"⚠️ Auto-labeling failed: {str(e)}\nContinuing with training...")
 
-            # --- Train YOLO ---
+            # --- Determine latest weights ---
             from app.utils import get_latest_trained_weights
-            latest_weights = get_latest_trained_weights()
+            best_path = get_latest_trained_weights()
+            if best_path and os.path.exists(best_path):
+                print(f"🔄 Continuing training from existing best.pt: {best_path}")
+            else:
+                print("🆕 No previous best.pt found, training fresh on uploaded images.")
+                best_path = None
 
-            print("🎬 Starting incremental training on 'train' folder...")
-            best_path = train_yolo_autosplit(
+            # --- Train YOLO ---
+            trained_weights = train_yolo_autosplit(
                 dataset_dir=DATASET_DIR,
-                model_name=latest_weights,
                 epochs=epochs,
                 imgsz=imgsz,
                 val_ratio=0.2
             )
 
             # --- Reload YOLO model ---
-            if best_path and os.path.exists(best_path):
+            if trained_weights and os.path.exists(trained_weights):
                 from app import utils
                 with reload_lock:
-                    utils.yolo = YOLO(best_path)
-                    print(f"✅ Model reloaded with updated weights: {best_path}")
+                    utils.yolo = YOLO(trained_weights)
+                    print(f"✅ Model reloaded with updated weights: {trained_weights}")
             else:
-                print("⚠️ No best.pt found after incremental training!")
+                print("⚠️ No best.pt found after training!")
 
         except Exception as e:
             import traceback
