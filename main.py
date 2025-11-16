@@ -42,12 +42,14 @@ from app.config import (
     WS_MAX_CONNECTIONS
 )
 from app.process_image import process_image, processing_tasks, AutoLabelResponse
-from app.new_train import train_yolo_autosplit_ws
+
 from app.ws_manager import ws_manager
+from app.trainer_ws import start_training_thread
 
 # Create necessary directories
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
+
 
 train_script = os.path.join(os.path.dirname(__file__), "app", "train_model.py")
 
@@ -168,41 +170,36 @@ async def get_processing_status(task_id: str):
         error=task.get("error")
     )
 
-# @app.post("/train-model")
-# async def train_model(background_tasks: BackgroundTasks):
-#     """
-#     Start YOLO training in the background.
-#     """
-#     # Add the training function to background tasks
-#     background_tasks.add_task(_train)
-
-#     return {"message": "Training started in background"}
-
+# POST endpoint to start training (non-blocking)
 @app.post("/train-model")
-async def start_training(background_tasks: BackgroundTasks):
+async def start_training():
     """
-    Start YOLO training in a separate thread and return immediately
+    Start YOLO training in a separate thread and return immediately.
     """
-    def training_thread():
-        # Run the async WS logger in the thread
-        asyncio.run(train_yolo_autosplit_ws(ws=ws_manager, dataset_dir=DATASET_DIR, epochs=100, imgsz=640))
+    # start daemon thread (non-blocking)
+    start_training_thread(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2)
+    return {"message": "Training started in background"}
 
-    thread = threading.Thread(target=training_thread, daemon=True)
-    thread.start()
-    
-    return {"message": "Training started"}
-
+# WebSocket endpoint for logs
 @app.websocket("/ws/train")
-async def websocket_train(ws: WebSocket):
-    """
-    WebSocket for streaming training logs
-    """
-    await ws_manager.connect(ws)
+async def websocket_train(websocket: WebSocket):
+    # accept and register
+    await ws_manager.connect(websocket)
     try:
+        # send buffer of recent logs immediately
+        await ws_manager.send_buffer_to(websocket)
+
+        # keep socket alive and receive ping/pongs from client if any
         while True:
-            await asyncio.sleep(1)  # Keep connection alive
+            # wait for ping or messages to detect disconnect
+            try:
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
     except WebSocketDisconnect:
-        ws_manager.disconnect(ws)
+        pass
+    finally:
+        ws_manager.disconnect(websocket)
 
 # ---------------------------------
 # 🎥 LIVE DETECTION (Webcam)
