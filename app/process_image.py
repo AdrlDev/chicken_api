@@ -49,10 +49,8 @@ async def process_image(task_id: str, image_path: str, label_name: str):
             classes.append(label_name)
             classes_lower.append(label_lower)
 
-        # Remove labels not in frontend (optional, if you want syncing)
-        # classes = [c for c in classes if c.lower() in classes_lower]
-
         # Save updated classes.txt
+        CLASSES_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(CLASSES_PATH, "w") as f:
             f.write("\n".join(classes) + "\n")
 
@@ -104,14 +102,14 @@ async def process_image(task_id: str, image_path: str, label_name: str):
             return
 
         # -------------------- MOVE IMAGE --------------------
-        img_filename = Path(image_path).name
-        dataset_img = Path(DATASET_DIR) / "images" / img_filename
-        Path(dataset_img).parent.mkdir(parents=True, exist_ok=True)
+        dataset_img = Path(DATASET_DIR) / "images" / Path(image_path).name
+        dataset_img.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(image_path, dataset_img)
 
-        public_img = PUBLIC_IMAGE_DIR / img_filename
+        public_img = PUBLIC_IMAGE_DIR / dataset_img.name
+        public_img.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(dataset_img, public_img)
-        image_url = f"https://aedev.cloud/dataset/images/{img_filename}"
+        image_url = f"https://aedev.cloud/dataset/images/{dataset_img.name}"
 
         # -------------------- CREATE LABEL STUDIO TASK --------------------
         PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
@@ -153,7 +151,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         if notes_path.exists():
             with open(notes_path, "r") as f:
                 notes = json.load(f)
-        notes[img_filename] = {
+        notes[dataset_img.name] = {
             "label": label_name,
             "upload_date": datetime.now().isoformat(),
             "detections": len(detections)
