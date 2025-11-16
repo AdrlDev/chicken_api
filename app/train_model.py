@@ -13,34 +13,29 @@ reload_lock = threading.Lock()
 
 class WSLogger:
     def __init__(self, total_epochs):
-        # Create a new event loop for this thread
+        self.total_epochs = total_epochs
+        # Each WSLogger gets its own event loop for threads
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.total_epochs = total_epochs
 
     def __call__(self, info):
-        import json, re
         msg_str = str(info)
         send_obj = {"log": msg_str, "progress": None}
 
-        # Detect epoch end
-        if "epoch" in msg_str.lower():
-            match = re.search(r"epoch (\d+)/(\d+)", msg_str.lower())
-            if match:
-                epoch = int(match.group(1))
-                total = int(match.group(2))
-                progress = int(epoch / total * 100)
-                send_obj["progress"] = progress
+        # Detect epoch progress
+        match = re.search(r"epoch (\d+)/(\d+)", msg_str.lower())
+        if match:
+            epoch = int(match.group(1))
+            total = int(match.group(2))
+            progress = int(epoch / total * 100)
+            send_obj["progress"] = progress
 
+        # Send JSON via WebSocket
         json_msg = json.dumps(send_obj)
-
         try:
-            if self.loop.is_running():
-                asyncio.run_coroutine_threadsafe(ws_manager.broadcast(json_msg), self.loop)
-            else:
-                self.loop.run_until_complete(ws_manager.broadcast(json_msg))
-        except Exception:
-            pass
+            asyncio.run_coroutine_threadsafe(ws_manager.broadcast(json_msg), self.loop)
+        except RuntimeError:
+            asyncio.run(ws_manager.broadcast(json_msg))
 
 def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0.2):
     for subset in ["train", "val"]:
@@ -112,8 +107,6 @@ def update_data_yaml(dataset_dir: str):
 
 
 def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
-    print("🔥 DEBUG: entering train_yolo_autosplit")
-
     images_dir = os.path.join(dataset_dir, "images")
     labels_dir = os.path.join(dataset_dir, "labels")
     save_dir = os.path.join(BASE_DIR, "runs", "detect")
@@ -131,7 +124,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
 
     data_yaml_path = update_data_yaml(dataset_dir)
 
-    # Device info
+    # Device
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🧠 Training on device: {device}")
@@ -148,6 +141,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
             model = YOLO(YOLO_WEIGHTS)
             model.to(device)
 
+        # Train with WSLogger callback
         model.train(
             data=data_yaml_path,
             epochs=epochs,
@@ -181,6 +175,7 @@ def _train(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2):
     with reload_lock:
         best = train_yolo_autosplit(dataset_dir, epochs, imgsz, val_ratio)
 
+        # Reload model with latest weights
         from app.utils import yolo, get_latest_trained_weights
         new_weights = get_latest_trained_weights()
         if os.path.exists(new_weights):
@@ -188,4 +183,3 @@ def _train(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2):
             print(f"✅ Model reloaded with new weights: {new_weights}")
         else:
             print("⚠️ No best.pt found after training")
-
