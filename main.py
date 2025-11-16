@@ -174,32 +174,24 @@ async def get_processing_status(task_id: str):
 @app.post("/train-model")
 async def start_training():
     """
-    Start YOLO training in a separate thread and return immediately.
+    Start YOLO training in a separate background thread.
+    Returns immediately.
     """
-    # start daemon thread (non-blocking)
     start_training_thread(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2)
-    return {"message": "Training started in background"}
+    return {"message": "Training started"}
 
 # WebSocket endpoint for logs
 @app.websocket("/ws/train")
-async def websocket_train(websocket: WebSocket):
-    # accept and register
-    await ws_manager.connect(websocket)
+async def websocket_train(ws: WebSocket):
+    """
+    WebSocket endpoint for streaming training logs.
+    """
+    await ws_manager.connect(ws)
     try:
-        # send buffer of recent logs immediately
-        await ws_manager.send_buffer_to(websocket)
-
-        # keep socket alive and receive ping/pongs from client if any
         while True:
-            # wait for ping or messages to detect disconnect
-            try:
-                await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                break
+            await asyncio.sleep(1)  # keep connection alive
     except WebSocketDisconnect:
-        pass
-    finally:
-        ws_manager.disconnect(websocket)
+        ws_manager.disconnect(ws)
 
 # ---------------------------------
 # 🎥 LIVE DETECTION (Webcam)
