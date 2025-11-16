@@ -15,6 +15,32 @@ import torch
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"🧠 Training on device: {device}")
 
+def on_train_batch_end_callback(trainer):
+    try:
+        # Calculate progress
+        current_batch = int(trainer.batch) if hasattr(trainer, "batch") else 0
+        total_batches = int(trainer.num_batches) if hasattr(trainer, "num_batches") else 1
+        progress = round((current_batch / total_batches) * 100)
+
+        # JSON-serializable info
+        info = {
+            "event": "batch_end",
+            "epoch": int(trainer.epoch) if hasattr(trainer, "epoch") else None,
+            "batch": current_batch,
+            "total_batches": total_batches,
+            "progress": progress,
+            "loss": float(trainer.loss) if hasattr(trainer, "loss") else None
+        }
+
+        msg = json.dumps(info)
+
+        # Send via WebSocket
+        loop = asyncio.get_event_loop()
+        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(msg), loop)
+
+    except Exception as e:
+        print("❌ Failed to send batch info:", e)
+
 def on_epoch_end_callback(trainer):
     try:
         # JSON-serializable info
@@ -171,6 +197,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
     # -------------------
     model.add_callback("on_model_save", on_model_save_callback)
     model.add_callback("on_epoch_end", on_epoch_end_callback)
+    model.add_callback("on_train_batch_end", on_train_batch_end_callback)
 
     # -------------------
     # Train
