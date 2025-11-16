@@ -7,49 +7,35 @@ from app.ws_manager import ws_manager
 import asyncio
 import json
 import re
-from ultralytics.engine.logger import Logger
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
 
-# class WSLogger:
-#     def __init__(self, total_epochs):
-#         self.total_epochs = total_epochs
-#         # Each WSLogger gets its own event loop for threads
-#         self.loop = asyncio.new_event_loop()
-#         asyncio.set_event_loop(self.loop)
+class WSLogger:
+    def __init__(self, total_epochs):
+        self.total_epochs = total_epochs
+        # Each WSLogger gets its own event loop for threads
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
 
-#     def __call__(self, info):
-#         msg_str = str(info)
-#         send_obj = {"log": msg_str, "progress": None}
+    def __call__(self, info):
+        msg_str = str(info)
+        send_obj = {"log": msg_str, "progress": None}
 
-#         # Detect epoch progress
-#         match = re.search(r"epoch (\d+)/(\d+)", msg_str.lower())
-#         if match:
-#             epoch = int(match.group(1))
-#             total = int(match.group(2))
-#             progress = int(epoch / total * 100)
-#             send_obj["progress"] = progress
-
-#         # Send JSON via WebSocket
-#         json_msg = json.dumps(send_obj)
-#         try:
-#             asyncio.run_coroutine_threadsafe(ws_manager.broadcast(json_msg), self.loop)
-#         except RuntimeError:
-#             asyncio.run(ws_manager.broadcast(json_msg))
-
-class WSLogger(Logger):
-    def log(self, info):
-        # info is a string of training log
-        send_obj = {"log": info, "progress": None}
-
-        match = re.search(r"epoch (\d+)/(\d+)", info.lower())
+        # Detect epoch progress
+        match = re.search(r"epoch (\d+)/(\d+)", msg_str.lower())
         if match:
-            epoch, total = int(match.group(1)), int(match.group(2))
-            send_obj["progress"] = int(epoch / total * 100)
+            epoch = int(match.group(1))
+            total = int(match.group(2))
+            progress = int(epoch / total * 100)
+            send_obj["progress"] = progress
 
+        # Send JSON via WebSocket
         json_msg = json.dumps(send_obj)
-        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(json_msg), asyncio.new_event_loop())
+        try:
+            asyncio.run_coroutine_threadsafe(ws_manager.broadcast(json_msg), self.loop)
+        except RuntimeError:
+            asyncio.run(ws_manager.broadcast(json_msg))
 
 def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0.2):
     for subset in ["train", "val"]:
@@ -155,8 +141,8 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
             model = YOLO(YOLO_WEIGHTS)
             model.to(device)
 
-        # Train with WSLogger callback
-        model.train(
+        # Train with streaming logs
+        for step in model.train(
             data=data_yaml_path,
             epochs=epochs,
             imgsz=imgsz,
@@ -164,8 +150,20 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
             name=train_name,
             exist_ok=True,
             batch=1,
-            logger=WSLogger()
-        )
+            stream=True
+        ): # type: ignore
+            # Extract epoch progress from step info
+            progress = None
+            msg = str(step)
+            import re
+            match = re.search(r"epoch (\d+)/(\d+)", msg.lower())
+            if match:
+                epoch = int(match.group(1))
+                total = int(match.group(2))
+                progress = int(epoch / total * 100)
+
+            # Send JSON via WebSocket
+            asyncio.run(ws_manager.broadcast(json.dumps({"log": msg, "progress": progress})))
 
         # Save best.pt
         source_best = os.path.join(save_dir, train_name, "weights", "best.pt")
