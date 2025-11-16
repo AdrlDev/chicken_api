@@ -17,7 +17,6 @@ from PIL import Image
 from fastapi import (
     FastAPI, 
     WebSocket, 
-    BackgroundTasks,
     File, 
     UploadFile, 
     HTTPException, 
@@ -29,8 +28,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 import asyncio
-
-from app.train_model import _train
 from app.detection import _run_detection
 from app.utils import yolo, DATASET_DIR
 from app.config import (

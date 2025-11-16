@@ -2,13 +2,37 @@ import os
 import shutil
 import threading
 from ultralytics import YOLO  # type: ignore
-from app.utils import BASE_DIR, DATASET_DIR, YOLO_WEIGHTS
+from app.utils import BASE_DIR, DATASET_DIR, YOLO_WEIGHTS, yolo, get_latest_trained_weights
 from app.ws_manager import ws_manager
 import json
 import asyncio
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
+
+# Device
+import torch
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"🧠 Training on device: {device}")
+
+def on_epoch_end_callback(trainer):
+    try:
+        # JSON-serializable info
+        info = {
+            "event": "epoch_end",
+            "epoch": int(trainer.epoch) if hasattr(trainer, "epoch") else None,
+            "total_epochs": int(trainer.epochs) if hasattr(trainer, "epochs") else None,
+            "best_fitness": float(trainer.best_fitness) if hasattr(trainer, "best_fitness") else None,
+            "metrics": {k: float(v) for k, v in trainer.metrics.items()} if hasattr(trainer, "metrics") else {},
+        }
+        msg = json.dumps(info)
+
+        # Send via WebSocket
+        loop = asyncio.get_event_loop()
+        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(msg), loop)
+    except Exception as e:
+        print("❌ Failed to send epoch info:", e)
+
 
 def on_model_save_callback(trainer):
     try:
@@ -108,72 +132,115 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
     weights_dir = os.path.join(train_path, "weights")
     os.makedirs(weights_dir, exist_ok=True)
     best_weights_path = os.path.join(weights_dir, "best.pt")
+    fresh_yaml_path = os.path.join(dataset_dir, "yolov8n.yaml")
 
     # Merge new images
     merged = safe_merge_new_images(images_dir, labels_dir, val_ratio)
-    if merged == 0:
-        if not os.listdir(os.path.join(images_dir, "train")) and not os.listdir(os.path.join(images_dir, "val")):
-            raise RuntimeError("❌ No training data found! Both train/val are empty.")
 
-    data_yaml_path = update_data_yaml(dataset_dir)
+    # -------------------
+    # Fallback: create empty dataset if needed
+    # -------------------
+    if merged == 0 and not os.listdir(os.path.join(images_dir, "train")) and not os.listdir(os.path.join(images_dir, "val")):
+        print("ℹ️ Dataset is empty. Using base YOLOv8n pretrain and creating empty YAML.")
+        os.makedirs(os.path.join(images_dir, "train"), exist_ok=True)
+        os.makedirs(os.path.join(images_dir, "val"), exist_ok=True)
 
-    # Device
-    import torch
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Create empty YAML
+        if not os.path.exists(fresh_yaml_path):
+            yaml_content = (
+                f"train: {os.path.join(images_dir, 'train')}\n"
+                f"val: {os.path.join(images_dir, 'val')}\n"
+                f"nc: 0\n"
+                f"names: []\n"
+            )
+            with open(fresh_yaml_path, "w") as f:
+                f.write(yaml_content)
+        data_yaml_path = fresh_yaml_path
+
+        # Use base YOLOv8n
+        model = YOLO(YOLO_WEIGHTS)
+        model.to(device)
+
+    else:
+        data_yaml_path = update_data_yaml(dataset_dir)
+        model = YOLO(get_latest_trained_weights())
+        model.to(device)
+
+    # -------------------
+    # Add callback
+    # -------------------
+    model.add_callback("on_model_save", on_model_save_callback)
+    model.add_callback("on_epoch_end", on_epoch_end_callback)
+
+    # -------------------
+    # Train
+    # -------------------
     print(f"🧠 Training on device: {device}")
+    model.train(
+        data=data_yaml_path,
+        epochs=epochs,
+        imgsz=imgsz,
+        batch=1,
+        project=save_dir,
+        name=train_name,
+        exist_ok=True
+    )
 
-    # Disable multiprocessing inside thread
-    os.environ["YOLO_NO_MULTIPROCESSING"] = "1"
+    # -------------------
+    # Save best.pt
+    # -------------------
+    source_best = os.path.join(save_dir, train_name, "weights", "best.pt")
+    if os.path.exists(source_best):
+        shutil.copy(source_best, best_weights_path)
+        print(f"🎯 Best weights saved at: {best_weights_path}")
+    else:
+        print("⚠️ Training finished but no best.pt was created!")
+        best_weights_path = YOLO_WEIGHTS
+
+    return best_weights_path
+
+def stream_train_logs(model, data_yaml_path, epochs=50, imgsz=640, train_name="train"):
+    model.add_callback("on_model_save", on_model_save_callback)
+    model.add_callback("on_epoch_end", on_epoch_end_callback)
 
     try:
-        # Load model
-        if os.path.exists(best_weights_path):
-            model = YOLO(best_weights_path)
-            model.to(device)
-        else:
-            model = YOLO(YOLO_WEIGHTS)
-            model.to(device)
-
-        model.add_callback("on_model_save", on_model_save_callback)
-
-        # Train with streaming logs
+        print("🧠 Starting YOLOv8 training...")
         model.train(
             data=data_yaml_path,
             epochs=epochs,
             imgsz=imgsz,
-            project=save_dir,
+            batch=1,
+            project="runs/detect",
             name=train_name,
-            exist_ok=True,
-            batch=1
+            exist_ok=True
         )
-
-        # Save best.pt
-        source_best = os.path.join(save_dir, train_name, "weights", "best.pt")
-        if os.path.exists(source_best):
-            shutil.copy(source_best, best_weights_path)
-            print(f"🎯 Best weights saved at: {best_weights_path}")
-        else:
-            raise RuntimeError("❌ Training finished but no best.pt was created!")
-
-        return best_weights_path
+        msg = json.dumps({"event": "training_finished", "message": "Training completed"})
+        loop = asyncio.get_event_loop()
+        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(msg), loop)
 
     except Exception as e:
-        import traceback
-        print("❌ YOLO training failed:")
-        traceback.print_exc()
+        msg = json.dumps({"event": "training_failed", "error": str(e)})
+        loop = asyncio.get_event_loop()
+        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(msg), loop)
         raise e
 
 
 def _train(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2):
-    """Entry point for threaded training"""
+    """Threaded YOLOv8 training with live WS streaming"""
     with reload_lock:
-        best = train_yolo_autosplit(dataset_dir, epochs, imgsz, val_ratio)
+        best_weights = train_yolo_autosplit(dataset_dir, epochs, imgsz, val_ratio)
+        data_yaml_path = os.path.join(dataset_dir, "data.yaml")
 
         # Reload model with latest weights
-        from app.utils import yolo, get_latest_trained_weights
-        new_weights = get_latest_trained_weights()
-        if os.path.exists(new_weights):
-            yolo = YOLO(new_weights)
-            print(f"✅ Model reloaded with new weights: {new_weights}")
-        else:
-            print("⚠️ No best.pt found after training")
+        global yolo
+        yolo = YOLO(best_weights)
+        yolo.to(device)
+        print(f"✅ Model reloaded with new weights: {best_weights}")
+
+        # Start training in a separate thread to not block server
+        t = threading.Thread(
+            target=stream_train_logs,
+            args=(yolo, data_yaml_path, epochs, imgsz, "train"),
+            daemon=True
+        )
+        t.start()
