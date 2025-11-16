@@ -43,6 +43,7 @@ from app.config import (
 )
 from app.process_image import process_image, processing_tasks, AutoLabelResponse
 from app.new_train import train_yolo_autosplit_ws
+from app.ws_manager import ws_manager
 
 # Create necessary directories
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
@@ -167,26 +168,41 @@ async def get_processing_status(task_id: str):
         error=task.get("error")
     )
 
-@app.post("/train-model")
-async def train_model(background_tasks: BackgroundTasks):
-    """
-    Start YOLO training in the background.
-    """
-    # Add the training function to background tasks
-    background_tasks.add_task(_train)
+# @app.post("/train-model")
+# async def train_model(background_tasks: BackgroundTasks):
+#     """
+#     Start YOLO training in the background.
+#     """
+#     # Add the training function to background tasks
+#     background_tasks.add_task(_train)
 
-    return {"message": "Training started in background"}
+#     return {"message": "Training started in background"}
+
+@app.post("/train-model")
+async def start_training(background_tasks: BackgroundTasks):
+    """
+    Start YOLO training in a separate thread and return immediately
+    """
+    def training_thread():
+        # Run the async WS logger in the thread
+        asyncio.run(train_yolo_autosplit_ws(ws=ws_manager, dataset_dir=DATASET_DIR, epochs=100, imgsz=640))
+
+    thread = threading.Thread(target=training_thread, daemon=True)
+    thread.start()
+    
+    return {"message": "Training started"}
 
 @app.websocket("/ws/train")
-async def ws_train(websocket: WebSocket):
-    await websocket.accept()
+async def websocket_train(ws: WebSocket):
+    """
+    WebSocket for streaming training logs
+    """
+    await ws_manager.connect(ws)
     try:
-        # Run YOLO training in background, send logs to this ws
-        await train_yolo_autosplit_ws(ws=websocket, dataset_dir=DATASET_DIR, epochs=100, imgsz=640)
+        while True:
+            await asyncio.sleep(1)  # Keep connection alive
     except WebSocketDisconnect:
-        print("Client disconnected")
-    except Exception as e:
-        await websocket.send_text(f"❌ Error: {str(e)}")
+        ws_manager.disconnect(ws)
 
 # ---------------------------------
 # 🎥 LIVE DETECTION (Webcam)
