@@ -1,13 +1,10 @@
 # train_model.py
 
 import os
-import random
 import shutil
 import threading
-import subprocess
-from datetime import datetime
 from ultralytics import YOLO  # type: ignore
-from app.utils import BASE_DIR, DATASET_DIR, yoloV8n, yolo
+from app.utils import BASE_DIR, DATASET_DIR
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
@@ -124,7 +121,7 @@ def train_yolo_autosplit(dataset_dir: str,
             from app.utils import YOLO_WEIGHTS
             model = YOLO(YOLO_WEIGHTS)
             model.to(device)
-            
+
         model.train(
             data=data_yaml_path,
             epochs=epochs,
