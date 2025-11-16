@@ -103,11 +103,11 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------- MOVE IMAGE --------------------
         dataset_img = Path(DATASET_DIR) / "images" / Path(image_path).name
         dataset_img.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(image_path, dataset_img)
+        shutil.copy2(image_path, dataset_img)
 
         public_img = PUBLIC_IMAGE_DIR / dataset_img.name
         public_img.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(dataset_img, public_img)
+        shutil.copy2(dataset_img, public_img)
         image_url = f"https://aedev.cloud/dataset/images/{dataset_img.name}"
 
         # -------------------- CREATE LABEL STUDIO TASK --------------------
