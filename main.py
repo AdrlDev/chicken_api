@@ -174,8 +174,8 @@ async def train_model():
     subprocess.Popen(
         [sys.executable, "-m", "app.train_model"],
         cwd=project_root,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
         bufsize=1,
         universal_newlines=True
     )
