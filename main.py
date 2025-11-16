@@ -3,7 +3,6 @@
 import io
 import os
 import cv2
-import json
 import base64
 import threading
 import numpy as np
@@ -11,11 +10,10 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-from typing import List, Optional, Dict
+from typing import List, Optional
 from datetime import datetime
 from pathlib import Path
-from PIL import Image, UnidentifiedImageError
-from app.label_studio import get_client
+from PIL import Image
 from fastapi import (
     FastAPI, 
     BackgroundTasks, 
@@ -30,6 +28,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
+import asyncio
 
 from app.train_model import _train
 from app.detection import _run_detection
@@ -38,13 +37,9 @@ from app.config import (
     DATASET_DIR, 
     IMAGES_DIR, 
     LABELS_DIR, 
-    BASE_DIR,
-    CLASSES_PATH,
     LOGS_DIR,
     CONFIDENCE_THRESHOLD,
     WEBSOCKET_CONFIDENCE_THRESHOLD,
-    AUTO_TRAIN_EPOCHS,
-    AUTO_TRAIN_IMAGE_SIZE,
     WS_MAX_CONNECTIONS
 )
 from app.process_image import process_image, processing_tasks, AutoLabelResponse
@@ -124,7 +119,6 @@ app.mount("/dataset/images", StaticFiles(directory=images_dir), name="images")
 # ---------------------------------
 @app.post("/auto-label-train", response_model=UploadResponse)
 async def auto_label_train(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     label_name: str = Form(...)  # Make label_name required
 ):
@@ -162,12 +156,11 @@ async def auto_label_train(
         }
 
         # Start background task for processing
-        background_tasks.add_task(
-            process_image,
+        asyncio.create_task(process_image(
             task_id=task_id,
             image_path=str(image_path),
             label_name=label_name
-        )
+        ))
 
         return UploadResponse(
             message="Image uploaded successfully, processing started",

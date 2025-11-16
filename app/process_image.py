@@ -10,9 +10,7 @@ from pydantic import BaseModel
 from app.config import (
     DATASET_DIR,
     LABELS_DIR,
-    CLASSES_PATH,
-    AUTO_TRAIN_EPOCHS,
-    AUTO_TRAIN_IMAGE_SIZE,
+    CLASSES_PATH
 )
 from app.train_model import _train
 from app.label_studio import get_client
