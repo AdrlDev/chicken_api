@@ -14,7 +14,7 @@ from app.config import (
     AUTO_TRAIN_EPOCHS,
     AUTO_TRAIN_IMAGE_SIZE,
 )
-from app.train_model import _train_auto
+from app.train_model import _train
 from app.label_studio import get_client
 import cv2
 from app.utils import ModelManager, PUBLIC_IMAGE_DIR
@@ -164,16 +164,15 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         }
         with open(notes_path, "w") as f:
             json.dump(notes, f, indent=4)
-        
-        isAutoLabel = label_name == None or label_name == ""
+    
 
         # -------------------- TRAIN --------------------
-        _train_auto(epochs=AUTO_TRAIN_EPOCHS, imgsz=AUTO_TRAIN_IMAGE_SIZE, auto_label=isAutoLabel)
+        _train()
 
         processing_tasks[task_id] = {
             "status": "completed",
             "result": AutoLabelResponse(
-                message=f"✅ {len(detections)} chickens detected and labeled with '{label_name}', retraining started",
+                message=f"✅ {len(detections)} chickens detected and labeled with '{label_name}'.",
                 mode="auto",
                 image=str(dataset_img),
                 label_file=str(yolo_label_path),

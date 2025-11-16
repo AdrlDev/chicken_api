@@ -13,14 +13,6 @@ from app.utils import BASE_DIR, DATASET_DIR, yoloV8n, yolo
 reload_lock = threading.Lock()
 
 
-def backup_dataset(dataset_dir: str):
-    """Create a timestamped backup of the dataset before training."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # microseconds for uniqueness
-    backup_dir = os.path.join(BASE_DIR, "backups", f"dataset_{timestamp}")
-    os.makedirs(os.path.dirname(backup_dir), exist_ok=True)
-    shutil.copytree(dataset_dir, backup_dir, dirs_exist_ok=True)
-    print(f"📦 Dataset backed up to: {backup_dir}")
-
 def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0.2):
     """
     Merge only NEW images (not already in train/val) into dataset.
@@ -211,71 +203,3 @@ def update_data_yaml(dataset_dir: str):
         f.write(yaml_content)
 
     return data_yaml_path
-
-def _train_auto(epochs: int = 5, imgsz: int = 640, auto_label: bool = True):
-    """
-    Incrementally fine-tune YOLO using uploaded images:
-    - If best.pt exists, continue training from it
-    - If no best.pt, train fresh on uploaded images
-    - Always updates 'runs/detect/train/weights/best.pt'
-    - Auto-labels new images if enabled
-    """
-    import asyncio
-
-    async def _run():
-        try:
-            print("\n🚀 Starting auto-training process...")
-            print("=" * 50)
-
-            # --- Auto-label new images ---
-            if auto_label:
-                try:
-                    from app.auto_labeler import ChickenAutoLabeler
-                    print("\n🏷️ Running auto-labeling on new images...")
-
-                    label_studio_url = os.getenv("LABEL_STUDIO_URL", "http://localhost:8080")
-                    api_key = os.getenv("LABEL_STUDIO_API_KEY")
-
-                    if not api_key:
-                        print("⚠️ LABEL_STUDIO_API_KEY not set, skipping auto-labeling")
-                    else:
-                        labeler = ChickenAutoLabeler(label_studio_url, api_key)
-                        results = await labeler.predict_and_label()
-                        print(f"✅ Auto-labeled {results['labeled']} images")
-                        if results['errors']:
-                            print(f"⚠️ Encountered {len(results['errors'])} errors during labeling")
-                except Exception as e:
-                    print(f"⚠️ Auto-labeling failed: {str(e)}\nContinuing with training...")
-
-            # --- Determine latest weights ---
-            from app.utils import get_latest_trained_weights
-            best_path = get_latest_trained_weights()
-            if best_path and os.path.exists(best_path):
-                print(f"🔄 Continuing training from existing best.pt: {best_path}")
-            else:
-                print("🆕 No previous best.pt found, training fresh on uploaded images.")
-                best_path = None
-
-            # --- Train YOLO ---
-            trained_weights = train_yolo_autosplit(
-                dataset_dir=DATASET_DIR,
-                epochs=epochs,
-                imgsz=imgsz,
-                val_ratio=0.2
-            )
-
-            # --- Reload YOLO model ---
-            if trained_weights and os.path.exists(trained_weights):
-                from app import utils
-                with reload_lock:
-                    utils.yolo = YOLO(trained_weights)
-                    print(f"✅ Model reloaded with updated weights: {trained_weights}")
-            else:
-                print("⚠️ No best.pt found after training!")
-
-        except Exception as e:
-            import traceback
-            print("❌ Auto-train failed:")
-            traceback.print_exc()
-
-    threading.Thread(target=lambda: asyncio.run(_run()), daemon=True).start()
