@@ -112,23 +112,19 @@ def train_yolo_autosplit(dataset_dir: str,
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🧠 Training on device: {device}")
 
-    # --- Determine starting weights ---
-    if os.path.exists(best_weights_path):
-        print(f"🔄 Continuing training from existing best.pt: {best_weights_path}")
-        start_weights = best_weights_path
-    else:
-        print("🆕 No previous best.pt found, training fresh on uploaded images.")
-        start_weights = None  # no fallback model
-
     # --- Train YOLO ---
     try:
-        if start_weights and os.path.exists(start_weights):
-            print(f"🔄 Continuing training from existing best.pt: {start_weights}")
-            model = YOLO(start_weights)  # Load from best.pt
+        # Determine which model to use
+        if os.path.exists(best_weights_path):
+            # Continue training using existing best.pt
+            model = YOLO(best_weights_path)
+            model.to(device)
         else:
-            print("🆕 No previous best.pt found, training fresh on uploaded images.")
-            model = yoloV8n  # initialize fresh model
-        model.to(device)
+            # Only now load base YOLOv8n
+            from app.utils import YOLO_WEIGHTS
+            model = YOLO(YOLO_WEIGHTS)
+            model.to(device)
+            
         model.train(
             data=data_yaml_path,
             epochs=epochs,
