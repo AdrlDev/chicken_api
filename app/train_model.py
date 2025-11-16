@@ -13,14 +13,17 @@ reload_lock = threading.Lock()
 
 class WSLogger:
     def __init__(self, total_epochs):
-        self.loop = asyncio.get_event_loop()
+        # Create a new event loop for this thread
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         self.total_epochs = total_epochs
 
     def __call__(self, info):
+        import json, re
         msg_str = str(info)
         send_obj = {"log": msg_str, "progress": None}
 
-        # Detect epoch end and send progress
+        # Detect epoch end
         if "epoch" in msg_str.lower():
             match = re.search(r"epoch (\d+)/(\d+)", msg_str.lower())
             if match:
@@ -29,19 +32,15 @@ class WSLogger:
                 progress = int(epoch / total * 100)
                 send_obj["progress"] = progress
 
-        # Convert to JSON string before broadcasting
         json_msg = json.dumps(send_obj)
 
         try:
             if self.loop.is_running():
                 asyncio.run_coroutine_threadsafe(ws_manager.broadcast(json_msg), self.loop)
             else:
-                asyncio.run(ws_manager.broadcast(json_msg))
-        except RuntimeError:
-            try:
-                asyncio.run(ws_manager.broadcast(json_msg))
-            except Exception:
-                pass
+                self.loop.run_until_complete(ws_manager.broadcast(json_msg))
+        except Exception:
+            pass
 
 def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0.2):
     for subset in ["train", "val"]:
