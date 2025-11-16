@@ -17,6 +17,7 @@ from PIL import Image
 from fastapi import (
     FastAPI, 
     WebSocket, 
+    BackgroundTasks,
     File, 
     UploadFile, 
     HTTPException, 
@@ -168,17 +169,13 @@ async def get_processing_status(task_id: str):
     )
 
 @app.post("/train-model")
-async def train_model():
-    # Launch training in background subprocess
-    project_root = "/root/chicken_api"  # adjust if needed
-    subprocess.Popen(
-        [sys.executable, "-m", "app.train_model"],
-        cwd=project_root,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-        bufsize=1,
-        universal_newlines=True
-    )
+async def train_model(background_tasks: BackgroundTasks):
+    """
+    Start YOLO training in the background.
+    """
+    # Add the training function to background tasks
+    background_tasks.add_task(_train)
+
     return {"message": "Training started in background"}
 
 # ---------------------------------
