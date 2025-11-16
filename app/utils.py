@@ -18,33 +18,16 @@ PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
 # 🔄 FUNCTION TO GET LATEST TRAINED WEIGHTS
 # ---------------------------------
 def get_latest_trained_weights() -> str:
-    """
-    Get the path to the most recently trained weights file.
-    Returns the path to the latest best.pt file, or YOLO_WEIGHTS if no trained weights exist.
-    """
-    try:
-        if not os.path.exists(RUNS_DIR):
-            print("ℹ️ No trained weights found, using initial weights:", YOLO_WEIGHTS)
-            return YOLO_WEIGHTS
+    """Returns the most recent trained best.pt, else fall back to assets."""
+    save_dir = os.path.join(BASE_DIR, "runs", "detect", "train", "weights")
+    trained_best = os.path.join(save_dir, "best.pt")
 
-        train_dirs = [
-            d for d in os.listdir(RUNS_DIR)
-            if os.path.isdir(os.path.join(RUNS_DIR, d)) and d.startswith("train")
-        ]
-        if not train_dirs:
-            return YOLO_WEIGHTS
-
-        train_dirs.sort(key=lambda x: os.path.getmtime(os.path.join(RUNS_DIR, x)), reverse=True)
-        for train_dir in train_dirs:
-            weights_dir = os.path.join(RUNS_DIR, train_dir, "weights")
-            best_path = os.path.join(weights_dir, "best.pt")
-            if os.path.exists(best_path):
-                print("✅ Using latest trained weights:", best_path)
-                return best_path
-        return YOLO_WEIGHTS
-    except Exception as e:
-        print(f"⚠️ Error finding latest weights: {str(e)}")
-        return YOLO_WEIGHTS
+    if os.path.exists(trained_best):
+        print(f"📌 Found trained model: {trained_best}")
+        return trained_best
+    
+    print(f"📌 No trained model found, using asset base: {YOLO_WEIGHTS}")
+    return YOLO_WEIGHTS
 
 # ---------------------------------
 # 🧠 YOLO MODEL MANAGER

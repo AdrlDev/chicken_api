@@ -147,75 +147,81 @@ def update_data_yaml(dataset_dir: str):
 def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
     images_dir = os.path.join(dataset_dir, "images")
     labels_dir = os.path.join(dataset_dir, "labels")
+
     save_dir = os.path.join(BASE_DIR, "runs", "detect")
-    train_name = "train"
-    train_path = os.path.join(save_dir, train_name)
-    weights_dir = os.path.join(train_path, "weights")
+    train_dir = os.path.join(save_dir, "train")
+    weights_dir = os.path.join(train_dir, "weights")
     os.makedirs(weights_dir, exist_ok=True)
-    best_weights_path = os.path.join(weights_dir, "best.pt")
-    fresh_yaml_path = os.path.join(dataset_dir, "yolov8n.yaml")
 
-    merged = safe_merge_new_images(images_dir, labels_dir, val_ratio)
+    # -------------------------------
+    # 1. Merge new uploaded images
+    # -------------------------------
+    safe_merge_new_images(images_dir, labels_dir, val_ratio)
 
-    # Fallback dataset
-    if merged == 0 and not os.listdir(os.path.join(images_dir, "train")) and not os.listdir(os.path.join(images_dir, "val")):
-        os.makedirs(os.path.join(images_dir, "train"), exist_ok=True)
-        os.makedirs(os.path.join(images_dir, "val"), exist_ok=True)
-        if not os.path.exists(fresh_yaml_path):
-            with open(fresh_yaml_path, "w") as f:
-                f.write(
-                    f"train: {os.path.join(images_dir, 'train')}\n"
-                    f"val: {os.path.join(images_dir, 'val')}\n"
-                    f"nc: 0\nnames: []\n"
-                )
-        data_yaml_path = fresh_yaml_path
-        model = YOLO()
-    else:
-        data_yaml_path = update_data_yaml(dataset_dir)
-        model = YOLO(get_latest_trained_weights())
+    # -------------------------------
+    # 2. ALWAYS update data.yaml
+    # -------------------------------
+    data_yaml_path = update_data_yaml(dataset_dir)
 
+    # -------------------------------
+    # 3. Select correct weights
+    # -------------------------------
+    weights_to_use = get_latest_trained_weights()
+    print(f"🔧 Loading model weights: {weights_to_use}")
+
+    model = YOLO(weights_to_use)
     model.to(device)
 
-    # Add callbacks
+    # -------------------------------
+    # 4. Attach callbacks
+    # -------------------------------
     model.add_callback("on_model_save", on_model_save_callback)
     model.add_callback("on_epoch_end", on_epoch_end_callback)
     model.add_callback("on_train_batch_end", on_train_batch_end_callback)
 
-    print(f"🧠 Training on device: {device}")
+    # -------------------------------
+    # 5. Train model
+    # -------------------------------
     model.train(
         data=data_yaml_path,
         epochs=epochs,
         imgsz=imgsz,
         batch=1,
         project=save_dir,
-        name=train_name,
+        name="train",
         exist_ok=True
     )
 
-    # Save best.pt
-    source_best = os.path.join(save_dir, train_name, "weights", "best.pt")
-    if os.path.exists(source_best):
-        shutil.copy(source_best, best_weights_path)
-        print(f"🎯 Best weights saved at: {best_weights_path}")
-    else:
-        print("⚠️ Training finished but no best.pt was created!")
-        best_weights_path = YOLO_WEIGHTS
+    # -------------------------------
+    # 6. Save best.pt into a stable location
+    # -------------------------------
+    final_best = os.path.join(train_dir, "weights", "best.pt")
 
-    return best_weights_path
+    if os.path.exists(final_best):
+        print(f"🎯 Best weights updated: {final_best}")
+    else:
+        print("⚠️ WARNING: best.pt NOT FOUND — fallback to base model.")
+        final_best = YOLO_WEIGHTS
+
+    return final_best
 
 # -------------------
 # Threaded training
 # -------------------
 def _train(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2):
-    """Threaded YOLOv8 training with live WS streaming"""
+    """Threaded YOLOv8 training with WS stream"""
     with reload_lock:
         latest_weights = train_yolo_autosplit(dataset_dir, epochs, imgsz, val_ratio)
 
         # Reload model globally
         global yolo
-        if latest_weights == YOLO_WEIGHTS:
-            yolo = YOLO()  # fresh model
-        else:
-            yolo = YOLO(latest_weights)
+        yolo = YOLO(latest_weights)
         yolo.to(device)
-        print(f"✅ Model reloaded with new weights: {latest_weights}")
+
+        msg = f"🔄 Model reloaded with latest trained weights: {latest_weights}"
+        print(msg)
+
+        asyncio.run_coroutine_threadsafe(
+            ws_manager.broadcast(msg),
+            MAIN_LOOP
+        )
