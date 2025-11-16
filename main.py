@@ -33,7 +33,6 @@ from app.train_model import _train
 from app.detection import _run_detection
 from app.utils import yolo
 from app.config import (
-    DATASET_DIR, 
     IMAGES_DIR, 
     LABELS_DIR, 
     LOGS_DIR,
@@ -171,8 +170,10 @@ async def get_processing_status(task_id: str):
 @app.post("/train-model")
 async def train_model():
     # Launch training in background subprocess
+    project_root = os.path.abspath(os.path.dirname(__file__))  # adjust if needed
     subprocess.Popen(
-        [sys.executable, "-u", train_script],  # adjust path if needed
+        [sys.executable, "app/train_model.py"],  # relative to project root
+        cwd=project_root,
         stdout=sys.stdout,  # <-- prints to VPS logs
         stderr=sys.stderr,  # <-- prints errors to VPS logs
         bufsize=1,
