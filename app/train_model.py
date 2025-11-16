@@ -129,6 +129,7 @@ def train_yolo_autosplit(dataset_dir: str,
             project=save_dir,
             name=train_name,
             exist_ok=True,
+            batch=1
         )
 
         # Ensure best.pt is always saved

@@ -32,7 +32,7 @@ import asyncio
 
 from app.train_model import _train
 from app.detection import _run_detection
-from app.utils import yolo
+from app.utils import yolo, DATASET_DIR
 from app.config import (
     IMAGES_DIR, 
     LABELS_DIR, 
@@ -42,8 +42,7 @@ from app.config import (
     WS_MAX_CONNECTIONS
 )
 from app.process_image import process_image, processing_tasks, AutoLabelResponse
-import subprocess
-import sys
+from app.new_train import train_yolo_autosplit_ws
 
 # Create necessary directories
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
@@ -177,6 +176,17 @@ async def train_model(background_tasks: BackgroundTasks):
     background_tasks.add_task(_train)
 
     return {"message": "Training started in background"}
+
+@app.websocket("/ws/train")
+async def ws_train(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        # Run YOLO training in background, send logs to this ws
+        await train_yolo_autosplit_ws(ws=websocket, dataset_dir=DATASET_DIR, epochs=100, imgsz=640)
+    except WebSocketDisconnect:
+        print("Client disconnected")
+    except Exception as e:
+        await websocket.send_text(f"❌ Error: {str(e)}")
 
 # ---------------------------------
 # 🎥 LIVE DETECTION (Webcam)
