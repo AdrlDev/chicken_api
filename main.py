@@ -173,8 +173,8 @@ async def train_model():
     # Launch training in background subprocess
     subprocess.Popen(
         [sys.executable, "-u", train_script],  # adjust path if needed
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=sys.stdout,  # <-- prints to VPS logs
+        stderr=sys.stderr,  # <-- prints errors to VPS logs
         bufsize=1,
         universal_newlines=True
     )

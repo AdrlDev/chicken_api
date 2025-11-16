@@ -156,12 +156,15 @@ def train_yolo_autosplit(dataset_dir: str,
 def _train():
     """Manual training endpoint logic"""
     print("🚀 Starting YOLO training...")
-    train_yolo_autosplit(
+    
+    trainResult = train_yolo_autosplit(
         dataset_dir=DATASET_DIR,
         epochs=100,
         imgsz=640,
         val_ratio=0.2
     )
+
+    print(trainResult)
 
     # Reload trained model weights
     with reload_lock:
