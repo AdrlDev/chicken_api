@@ -12,7 +12,6 @@ from app.config import (
     LABELS_DIR,
     CLASSES_PATH
 )
-from app.train_model import _train
 from app.label_studio import get_client
 import cv2
 from app.utils import ModelManager, PUBLIC_IMAGE_DIR
@@ -30,7 +29,6 @@ class AutoLabelResponse(BaseModel):
     label_file: str
     label_name: str
     classes: List[str]
-
 
 async def process_image(task_id: str, image_path: str, label_name: str):
     try:
@@ -162,10 +160,6 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         }
         with open(notes_path, "w") as f:
             json.dump(notes, f, indent=4)
-    
-
-        # -------------------- TRAIN --------------------
-        _train()
 
         processing_tasks[task_id] = {
             "status": "completed",

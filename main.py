@@ -72,29 +72,6 @@ app = FastAPI(
 
 stop_live = False  # global flag for webcam detection
 
-# ---------------------------------
-# 🧩 TRAIN MODEL (with Background Task)
-# ---------------------------------
-@app.post("/train", response_model=TrainResponse)
-async def train_model(background_tasks: BackgroundTasks):
-    """
-    Trigger YOLO training using dataset from Label Studio.
-    
-    Returns:
-        TrainResponse: Status of the training process
-    """
-    try:
-        background_tasks.add_task(_train)
-        return TrainResponse(
-            status="training started",
-            dataset=str(DATASET_DIR)
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start training: {str(e)}"
-        )
-
 # Response model for initial upload response
 class UploadResponse(BaseModel):
     message: str
@@ -187,6 +164,11 @@ async def get_processing_status(task_id: str):
         result=task.get("result"),
         error=task.get("error")
     )
+
+@app.post("/train-model")
+async def train_model():
+    asyncio.create_task(asyncio.to_thread(_train))
+    return {"message": "Training started in background"}
 
 # ---------------------------------
 # 🎥 LIVE DETECTION (Webcam)
