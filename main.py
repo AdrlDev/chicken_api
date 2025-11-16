@@ -170,12 +170,12 @@ async def get_processing_status(task_id: str):
 @app.post("/train-model")
 async def train_model():
     # Launch training in background subprocess
-    project_root = os.path.abspath(os.path.dirname(__file__))  # adjust if needed
+    project_root = "/root/chicken_api"  # adjust if needed
     subprocess.Popen(
-        [sys.executable, "app/train_model.py"],  # relative to project root
+        [sys.executable, "-m", "app.train_model"],
         cwd=project_root,
-        stdout=sys.stdout,  # <-- prints to VPS logs
-        stderr=sys.stderr,  # <-- prints errors to VPS logs
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         bufsize=1,
         universal_newlines=True
     )
