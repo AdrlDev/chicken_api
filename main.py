@@ -16,7 +16,6 @@ from pathlib import Path
 from PIL import Image
 from fastapi import (
     FastAPI, 
-    BackgroundTasks, 
     WebSocket, 
     File, 
     UploadFile, 
@@ -43,10 +42,14 @@ from app.config import (
     WS_MAX_CONNECTIONS
 )
 from app.process_image import process_image, processing_tasks, AutoLabelResponse
+import subprocess
+import sys
 
 # Create necessary directories
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
+
+train_script = os.path.join(os.path.dirname(__file__), "app", "train_model.py")
 
 # Define response models
 class DetectionResponse(BaseModel):
@@ -167,7 +170,14 @@ async def get_processing_status(task_id: str):
 
 @app.post("/train-model")
 async def train_model():
-    asyncio.create_task(asyncio.to_thread(_train))
+    # Launch training in background subprocess
+    subprocess.Popen(
+        [sys.executable, "-u", train_script],  # adjust path if needed
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+        universal_newlines=True
+    )
     return {"message": "Training started in background"}
 
 # ---------------------------------
