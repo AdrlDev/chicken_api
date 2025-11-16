@@ -122,11 +122,12 @@ def train_yolo_autosplit(dataset_dir: str,
 
     # --- Train YOLO ---
     try:
-        if start_weights:
-            model = yolo
+        if start_weights and os.path.exists(start_weights):
+            print(f"🔄 Continuing training from existing best.pt: {start_weights}")
+            model = YOLO(start_weights)  # Load from best.pt
         else:
-            # Train fresh: initialize a new model directly on uploaded images
-            model = yoloV8n  # empty YOLO model
+            print("🆕 No previous best.pt found, training fresh on uploaded images.")
+            model = yoloV8n  # initialize fresh model
         model.to(device)
         model.train(
             data=data_yaml_path,
