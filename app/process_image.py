@@ -15,6 +15,7 @@ from app.config import (
 from app.label_studio import get_client
 import cv2
 from app.utils import ModelManager, PUBLIC_IMAGE_DIR
+from ultralytics import YOLO
 
 # Minimum contour area to consider a valid object
 MIN_OBJECT_AREA = 500
@@ -68,7 +69,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         img = cv2.resize(orig_img, (int(orig_w*scale), int(orig_h*scale))) if scale < 1.0 else orig_img.copy()
 
         # -------------------- DETECT CHICKENS USING BASE YOLOv8n --------------------
-        base_model = ModelManager.get_model()
+        base_model = YOLO("yolo11n.pt")
         results = base_model.predict(img, conf=0.3, save=False)  # adjust confidence if needed
 
         detections = []
