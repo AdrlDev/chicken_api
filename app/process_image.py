@@ -66,10 +66,9 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # Resize if too large
         scale = min(1.0, MAX_IMAGE_DIM / max(orig_w, orig_h))
         img = cv2.resize(orig_img, (int(orig_w*scale), int(orig_h*scale))) if scale < 1.0 else orig_img.copy()
-        h, w = img.shape[:2]
 
         # -------------------- DETECT CHICKENS USING BASE YOLOv8n --------------------
-        base_model = ModelManager.get_base_yolov8n()
+        base_model = ModelManager.get_model()
         results = base_model.predict(img, conf=0.3, save=False)  # adjust confidence if needed
 
         detections = []
@@ -104,7 +103,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------- MOVE IMAGE --------------------
         dataset_img = Path(DATASET_DIR) / "images" / Path(image_path).name
         dataset_img.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(image_path, dataset_img)
+        shutil.copy(image_path, dataset_img)
 
         public_img = PUBLIC_IMAGE_DIR / dataset_img.name
         public_img.parent.mkdir(parents=True, exist_ok=True)
