@@ -4,22 +4,29 @@ import threading
 from ultralytics import YOLO  # type: ignore
 from app.utils import BASE_DIR, DATASET_DIR, YOLO_WEIGHTS
 from app.ws_manager import ws_manager
-import asyncio
-import json
-from YOLO import Callback
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
 
-class WSLoggerCallback(Callback):
-    def after_epoch(self, trainer):
-        epoch = trainer.epoch
-        total = trainer.epochs
-        progress = int(epoch / total * 100)
-        asyncio.run_coroutine_threadsafe(
-            ws_manager.broadcast(json.dumps({"log": f"Epoch {epoch}/{total}", "progress": progress})),
-            asyncio.get_event_loop()
-        )
+def on_model_save_callback(trainer):
+    # trainer is the Ultralytics Trainer object
+    metrics = trainer.metrics
+    best_fitness = getattr(trainer, "best_fitness", None)
+    loss_names = getattr(trainer, "loss_names", None)
+    total_loss = getattr(trainer, "tloss", None)
+    # Create a JSON message for WebSocket
+    info = {
+        "event": "model_saved",
+        "metrics": metrics,
+        "best_fitness": best_fitness,
+        "loss_names": loss_names,
+        "total_loss": total_loss
+    }
+    import json
+    msg = json.dumps(info)
+    # Send via ws_manager
+    import asyncio
+    asyncio.run_coroutine_threadsafe(ws_manager.broadcast(msg), asyncio.get_event_loop())
 
 def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0.2):
     for subset in ["train", "val"]:
@@ -125,6 +132,8 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
             model = YOLO(YOLO_WEIGHTS)
             model.to(device)
 
+        model.add_callback("on_model_save", on_model_save_callback)
+
         # Train with streaming logs
         model.train(
             data=data_yaml_path,
@@ -133,8 +142,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
             project=save_dir,
             name=train_name,
             exist_ok=True,
-            batch=1,
-            callbacks=[WSLoggerCallback()]
+            batch=1
         )
 
         # Save best.pt
