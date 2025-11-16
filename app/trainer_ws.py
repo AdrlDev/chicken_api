@@ -1,9 +1,11 @@
 import threading
-import sys
 import io
 import asyncio
 from app.ws_manager import ws_manager
 from app.train_model import _train
+import sys, threading
+
+MAIN_LOOP = asyncio.get_event_loop()  # capture main loop for WS
 
 class StreamForwarder(io.TextIOBase):
     def __init__(self, original):
@@ -41,11 +43,6 @@ class StreamForwarder(io.TextIOBase):
 
 
 def _threaded_train(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
-    import sys, threading
-    from app.train_model import _train
-    import asyncio
-    from app.ws_manager import ws_manager
-
     class StreamForwarder:
         def __init__(self, original):
             self.original = original
@@ -58,8 +55,7 @@ def _threaded_train(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ra
                 pass
             # forward to WS
             try:
-                loop = asyncio.get_event_loop()
-                asyncio.run_coroutine_threadsafe(ws_manager.broadcast(s.strip()), loop)
+                asyncio.run_coroutine_threadsafe(ws_manager.broadcast(s.strip()), MAIN_LOOP)
             except Exception:
                 pass
             return len(s)
@@ -74,31 +70,30 @@ def _threaded_train(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ra
     orig_stdout = sys.stdout
     sys.stdout = StreamForwarder(orig_stdout)
 
-    loop = None  # <-- define before try
     try:
         # Each thread gets its own event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        MAIN_LOOP = asyncio.new_event_loop()
+        asyncio.set_event_loop(MAIN_LOOP)
 
         # Broadcast start
-        loop.run_until_complete(ws_manager.broadcast(f"🔔 Trainer starting at thread {threading.get_ident()}"))
+        MAIN_LOOP.run_until_complete(ws_manager.broadcast(f"🔔 Trainer starting at thread {threading.get_ident()}"))
 
         # Run training
         try:
             _train(dataset_dir=dataset_dir, epochs=epochs, imgsz=imgsz, val_ratio=val_ratio)
-            loop.run_until_complete(ws_manager.broadcast("✅ Training finished"))
+            MAIN_LOOP.run_until_complete(ws_manager.broadcast("✅ Training finished"))
         except Exception as e:
-            loop.run_until_complete(ws_manager.broadcast(f"❌ Training failed: {str(e)}"))
+            MAIN_LOOP.run_until_complete(ws_manager.broadcast(f"❌ Training failed: {str(e)}"))
             raise
 
     finally:
         # Restore stdout
         sys.stdout = orig_stdout
-        if loop:
+        if MAIN_LOOP: # type: ignore
             try:
-                loop.run_until_complete(ws_manager.broadcast("🔚 Trainer thread finished"))
+                MAIN_LOOP.run_until_complete(ws_manager.broadcast("🔚 Trainer thread finished"))
             finally:
-                loop.close()
+                MAIN_LOOP.close()
 
 
 def start_training_thread(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):

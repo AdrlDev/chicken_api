@@ -89,6 +89,10 @@ def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0
 
     if not new_images:
         print("ℹ️ No new images found to merge.")
+        asyncio.run_coroutine_threadsafe(
+            ws_manager.broadcast("ℹ️ No new images found to merge."),
+            MAIN_LOOP
+        )
         return 0
 
     random.shuffle(new_images)
@@ -117,6 +121,10 @@ def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0
                 print(f"⚠️ Failed to move {img_file}: {move_err}")
 
     print(f"📥 Merged {moved_count} new images into dataset.")
+    asyncio.run_coroutine_threadsafe(
+            ws_manager.broadcast(f"📥 Merged {moved_count} new images into dataset."),
+            MAIN_LOOP
+        )
     return moved_count
 
 def update_data_yaml(dataset_dir: str):
@@ -199,8 +207,16 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
 
     if os.path.exists(final_best):
         print(f"🎯 Best weights updated: {final_best}")
+        asyncio.run_coroutine_threadsafe(
+            ws_manager.broadcast(f"🎯 Best weights updated: {final_best}"),
+            MAIN_LOOP
+        )
     else:
         print("⚠️ WARNING: best.pt NOT FOUND — fallback to base model.")
+        asyncio.run_coroutine_threadsafe(
+            ws_manager.broadcast("⚠️ WARNING: best.pt NOT FOUND — fallback to base model."),
+            MAIN_LOOP
+        )
         final_best = YOLO_WEIGHTS
 
     return final_best
