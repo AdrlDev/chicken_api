@@ -4,29 +4,31 @@ import threading
 from ultralytics import YOLO  # type: ignore
 from app.utils import BASE_DIR, DATASET_DIR, YOLO_WEIGHTS
 from app.ws_manager import ws_manager
+import json
+import asyncio
 
 # Thread lock for safe YOLO reloading
 reload_lock = threading.Lock()
 
 def on_model_save_callback(trainer):
-    # trainer is the Ultralytics Trainer object
-    metrics = trainer.metrics
-    best_fitness = getattr(trainer, "best_fitness", None)
-    loss_names = getattr(trainer, "loss_names", None)
-    total_loss = getattr(trainer, "tloss", None)
-    # Create a JSON message for WebSocket
-    info = {
-        "event": "model_saved",
-        "metrics": metrics,
-        "best_fitness": best_fitness,
-        "loss_names": loss_names,
-        "total_loss": total_loss
-    }
-    import json
-    msg = json.dumps(info)
-    # Send via ws_manager
-    import asyncio
-    asyncio.run_coroutine_threadsafe(ws_manager.broadcast(msg), asyncio.get_event_loop())
+    try:
+        # Only extract JSON-serializable info
+        info = {
+            "event": "model_saved",
+            "best_fitness": float(trainer.best_fitness) if hasattr(trainer, "best_fitness") else None,
+            "total_loss": float(trainer.losses[-1]) if hasattr(trainer, "losses") and len(trainer.losses) > 0 else None,
+            "metrics": {k: float(v) for k, v in trainer.metrics.items()} if hasattr(trainer, "metrics") else {},
+            "loss_names": list(trainer.loss_names) if hasattr(trainer, "loss_names") else []
+        }
+
+        msg = json.dumps(info)
+
+        # Send via WebSocket (thread-safe)
+        loop = asyncio.get_event_loop()
+        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(msg), loop)
+
+    except Exception as e:
+        print("❌ Failed to send model save info:", e)
 
 def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0.2):
     for subset in ["train", "val"]:
