@@ -46,11 +46,8 @@ class ModelManager:
 
     @classmethod
     def get_model(cls, force_reload=False):
-        """
-        Get or create YOLO model instance with latest trained weights.
-        """
         latest_weights = get_latest_trained_weights()
-        if cls._instance is None or force_reload or (latest_weights != cls._last_weights_path and os.path.exists(latest_weights)):
+        if cls._instance is None or force_reload or (latest_weights != cls._last_weights_path):
             print(f"🔄 Loading YOLO model from: {latest_weights}")
             cls._instance = YOLO(latest_weights)
             cls._instance.to(DEVICE)
