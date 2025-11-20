@@ -13,15 +13,24 @@ from app.config import (
 # 🔄 FUNCTION TO GET LATEST TRAINED WEIGHTS
 # ---------------------------------
 def get_latest_trained_weights() -> str:
-    """Returns the most recent trained best.pt, else fall back to assets."""
-    save_dir = os.path.join(BASE_DIR, "runs", "detect", "train", "weights")
-    trained_best = os.path.join(save_dir, "best.pt")
+    """Returns the most recent trained best.pt, else fall back to YOLO_WEIGHTS"""
+    detect_dir = BASE_DIR / "runs" / "detect"
+    if not detect_dir.exists():
+        return str(YOLO_WEIGHTS)
 
-    if os.path.exists(trained_best):
-        print(f"📌 Found trained model: {trained_best}")
-        return trained_best
-    
-    print(f"📌 No trained model found, using asset base: {YOLO_WEIGHTS}")
+    # Find all train folders
+    train_folders = [d for d in detect_dir.iterdir() if d.is_dir() and d.name.startswith("train")]
+    if not train_folders:
+        return str(YOLO_WEIGHTS)
+
+    # Pick the latest folder (by modification time)
+    latest_train = max(train_folders, key=lambda d: d.stat().st_mtime)
+    best_pt = latest_train / "weights" / "best.pt"
+
+    if best_pt.exists():
+        print(f"📌 Found latest trained model: {best_pt}")
+        return str(best_pt)
+
     return str(YOLO_WEIGHTS)
 
 # ---------------------------------
