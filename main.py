@@ -29,14 +29,15 @@ from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 import asyncio
 from app.detection import _run_detection
-from app.utils import yolo, DATASET_DIR
+from app.utils import yolo
 from app.config import (
     IMAGES_DIR, 
     LABELS_DIR, 
     LOGS_DIR,
     CONFIDENCE_THRESHOLD,
     WEBSOCKET_CONFIDENCE_THRESHOLD,
-    WS_MAX_CONNECTIONS
+    WS_MAX_CONNECTIONS,
+    DATASET_DIR
 )
 from app.process_image import process_image, processing_tasks, AutoLabelResponse
 
@@ -174,7 +175,7 @@ async def start_training():
     Start YOLO training in a separate background thread.
     Returns immediately.
     """
-    start_training_thread(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2)
+    start_training_thread(dataset_dir=str(DATASET_DIR), epochs=100, imgsz=640, val_ratio=0.2)
     return {"message": "Training started"}
 
 # WebSocket endpoint for logs

@@ -4,15 +4,10 @@ from pathlib import Path
 from ultralytics import YOLO  # type: ignore
 from datetime import datetime
 import torch
-
-# ---------------------------------
-# 🔧 PATH CONFIGURATION
-# ---------------------------------
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # Go up one level to project root
-YOLO_WEIGHTS = os.path.join(BASE_DIR, "assets", "yolov8n.pt")  # Initial YOLOv8n weights
-DATASET_DIR = os.path.join(BASE_DIR, "dataset")
-RUNS_DIR = os.path.join(BASE_DIR, "runs", "detect")
-PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
+from app.config import (
+    BASE_DIR,
+    YOLO_WEIGHTS
+)
 
 # ---------------------------------
 # 🔄 FUNCTION TO GET LATEST TRAINED WEIGHTS
@@ -27,7 +22,7 @@ def get_latest_trained_weights() -> str:
         return trained_best
     
     print(f"📌 No trained model found, using asset base: {YOLO_WEIGHTS}")
-    return YOLO_WEIGHTS
+    return str(YOLO_WEIGHTS)
 
 # ---------------------------------
 # 🧠 YOLO MODEL MANAGER

@@ -5,7 +5,8 @@ import json
 import random
 import asyncio
 from ultralytics import YOLO  # type: ignore
-from app.utils import BASE_DIR, DATASET_DIR, YOLO_WEIGHTS, yolo, get_latest_trained_weights
+from app.utils import BASE_DIR, YOLO_WEIGHTS, yolo, get_latest_trained_weights
+from app.config import DATASET_DIR
 from app.ws_manager import ws_manager
 import torch
 
@@ -224,7 +225,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
 # -------------------
 # Threaded training
 # -------------------
-def _train(dataset_dir=DATASET_DIR, epochs=100, imgsz=640, val_ratio=0.2):
+def _train(dataset_dir=str(DATASET_DIR), epochs=100, imgsz=640, val_ratio=0.2):
     """Threaded YOLOv8 training with WS stream"""
     with reload_lock:
         latest_weights = train_yolo_autosplit(dataset_dir, epochs, imgsz, val_ratio)

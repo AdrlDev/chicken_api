@@ -10,11 +10,11 @@ from pydantic import BaseModel
 from app.config import (
     DATASET_DIR,
     LABELS_DIR,
-    CLASSES_PATH
+    CLASSES_PATH,
+    PUBLIC_IMAGE_DIR
 )
 from app.label_studio import get_client
 import cv2
-from app.utils import ModelManager, PUBLIC_IMAGE_DIR
 from ultralytics import YOLO
 
 # Minimum contour area to consider a valid object
