@@ -36,6 +36,7 @@ from app.config import (
     LOGS_DIR,
     CONFIDENCE_THRESHOLD,
     WEBSOCKET_CONFIDENCE_THRESHOLD,
+    AUTO_TRAIN_IMAGE_SIZE,
     WS_MAX_CONNECTIONS,
     DATASET_DIR
 )
@@ -291,60 +292,58 @@ async def websocket_detect(websocket: WebSocket):
             try:
                 data = await websocket.receive_text()
             except WebSocketDisconnect:
-                raise  # Re-raise to handle in outer try/except
+                break
             except Exception as e:
-                await websocket.send_json({
-                    "error": f"Failed to receive data: {str(e)}"
-                })
+                await websocket.send_json({"error": f"Failed to receive data: {str(e)}"})
                 continue
-                
-            # Decode and process image
+
+            # Decode image
             try:
                 image_bytes = base64.b64decode(data.split(",")[1])
                 np_img = np.frombuffer(image_bytes, np.uint8)
                 frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-                
                 if frame is None:
                     raise ValueError("Failed to decode image")
-                    
-                h, w, _ = frame.shape
             except Exception as e:
-                await websocket.send_json({
-                    "error": f"Invalid image data: {str(e)}"
-                })
+                await websocket.send_json({"error": f"Invalid image data: {str(e)}"})
                 continue
 
-            # Run detection
+            # Run detection with proper input size
             try:
-                results = yolo(frame, conf=0.3) # type: ignore
-                detections: List[DetectionResponse] = []
+                results = yolo.predict(frame, imgsz=AUTO_TRAIN_IMAGE_SIZE, conf=CONFIDENCE_THRESHOLD, save=False)
 
+                detections = []
                 for r in results:
-                    for box in r.boxes:
+                    for box in r.boxes: # type: ignore
                         conf = float(box.conf[0])
-                        if conf < WEBSOCKET_CONFIDENCE_THRESHOLD:
+                        if conf < CONFIDENCE_THRESHOLD:
                             continue
-                            
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        
-                        # Filter out detections that cover most of the image
-                        if (x2 - x1) > 0.9 * w and (y2 - y1) > 0.9 * h:
-                            continue
-                            
                         cls = int(box.cls[0])
-                        label = yolo.names[cls] # type: ignore
-                        
+                        label = yolo.names[cls]
+
+                        # Draw box for visualization
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(frame, f"{label} {conf:.2f}", (x1, y1-5),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
                         detections.append(DetectionResponse(
                             label=label,
                             confidence=round(conf, 2),
                             bbox=[x1, y1, x2, y2]
                         ))
 
-                await websocket.send_json({"detections": [det.dict() for det in detections]})
-            except Exception as e:
+                # Optional: encode annotated frame back to base64 to visualize in client
+                _, buffer = cv2.imencode(".jpg", frame)
+                annotated_b64 = base64.b64encode(buffer).decode("utf-8")
+
                 await websocket.send_json({
-                    "error": f"Detection error: {str(e)}"
+                    "detections": [det.dict() for det in detections],
+                    "annotated_image": f"data:image/jpeg;base64,{annotated_b64}"
                 })
+
+            except Exception as e:
+                await websocket.send_json({"error": f"Detection error: {str(e)}"})
 
     except WebSocketDisconnect:
         print(f"🛑 Client disconnected normally")
