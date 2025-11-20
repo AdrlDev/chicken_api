@@ -316,7 +316,7 @@ async def websocket_detect(websocket: WebSocket):
 
             # Run detection
             try:
-                results = yolo(frame) # type: ignore
+                results = yolo(frame, conf=0.3) # type: ignore
                 detections: List[DetectionResponse] = []
 
                 for r in results:

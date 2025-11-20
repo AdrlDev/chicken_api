@@ -67,5 +67,5 @@ class ModelManager:
         return base_model
 
 # Create singleton instance for general use
-yolo = ModelManager.get_model()
+yolo = ModelManager.get_model(force_reload=True)
 yoloV8n = ModelManager.get_base_yolov8n()
