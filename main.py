@@ -310,7 +310,7 @@ async def websocket_detect(websocket: WebSocket):
 
             # Run detection with proper input size
             try:
-                results = yolo.predict(frame, imgsz=AUTO_TRAIN_IMAGE_SIZE, conf=CONFIDENCE_THRESHOLD, save=False)
+                results = yolo.predict(frame)
 
                 detections = []
                 for r in results:
