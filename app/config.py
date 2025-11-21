@@ -17,9 +17,11 @@ DATASET_DIR = BASE_DIR / "dataset"
 IMAGES_DIR = DATASET_DIR / "images"
 LABELS_DIR = DATASET_DIR / "labels"
 CLASSES_PATH = DATASET_DIR / "classes.txt"
-LOGS_DIR = BASE_DIR / "runs" / "auto_train"
 YOLO_WEIGHTS = BASE_DIR / "assets" / "yolo11n.pt"
 PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
+
+# === CONFIG ===
+ROBOFLOW = BASE_DIR / "roboflow_dataset"
 
 
 # WebSocket settings

@@ -33,10 +33,7 @@ from app.utils import yolo
 from app.config import (
     IMAGES_DIR, 
     LABELS_DIR, 
-    LOGS_DIR,
     CONFIDENCE_THRESHOLD,
-    WEBSOCKET_CONFIDENCE_THRESHOLD,
-    AUTO_TRAIN_IMAGE_SIZE,
     WS_MAX_CONNECTIONS,
     DATASET_DIR
 )
@@ -207,50 +204,6 @@ def stop_detection():
     global stop_live
     stop_live = True
     return JSONResponse({"status": "live detection stopped"})
-
-@app.get("/train/status", response_model=TrainStatusResponse)
-async def train_status():
-    """
-    Get the status of the latest training session.
-    
-    Returns:
-        TrainStatusResponse: Information about the latest training session
-    """
-    try:
-        if not LOGS_DIR.exists():
-            return TrainStatusResponse(
-                session="none",
-                status="No training sessions found"
-            )
-
-        sessions = [d for d in os.listdir(LOGS_DIR) if d.startswith("train_")]
-        if not sessions:
-            return TrainStatusResponse(
-                session="none",
-                status="No training sessions yet"
-            )
-
-        latest = sorted(sessions)[-1]
-        log_file = LOGS_DIR / latest / "results.txt"
-        
-        if not log_file.exists():
-            return TrainStatusResponse(
-                session=latest,
-                status="Training in progress - no logs yet"
-            )
-
-        with open(log_file, "r") as f:
-            lines = f.readlines()[-10:]  # Get last 10 lines
-            
-        return TrainStatusResponse(
-            session=latest,
-            recent_logs=lines
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get training status: {str(e)}"
-        )
 
 
 # ---------------------------------
