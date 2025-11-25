@@ -7,7 +7,8 @@ import base64
 import threading
 import numpy as np
 from dotenv import load_dotenv
-
+import asyncio
+import time
 # Load environment variables from .env file
 load_dotenv()
 from typing import List, Optional
@@ -46,6 +47,8 @@ from app.trainer_ws import start_training_thread
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
 
+MAX_QUEUE_SIZE = 1   # Always keep only the latest frame
+
 
 train_script = os.path.join(os.path.dirname(__file__), "app", "train_model.py")
 
@@ -54,6 +57,7 @@ class DetectionResponse(BaseModel):
     label: str
     confidence: float
     bbox: List[float]
+    timestampMs: int
 
 class TrainResponse(BaseModel):
     status: str
@@ -283,7 +287,8 @@ async def websocket_detect(websocket: WebSocket):
                         detections.append(DetectionResponse(
                             label=label,
                             confidence=round(conf, 2),
-                            bbox=[x1, y1, x2, y2]
+                            bbox=[x1, y1, x2, y2],
+                            timestampMs=int(datetime.now().timestamp() * 1000)
                         ))
 
                 # Optional: encode annotated frame back to base64 to visualize in client
@@ -312,66 +317,110 @@ async def websocket_detect(websocket: WebSocket):
 @app.websocket("/ws/video-detect")
 async def websocket_video_detect(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time object detection from video stream.
-    
-    Expects: Binary JPEG frames
-    Returns: JSON with detection results
+    Optimized real-time detection WebSocket:
+    - No backlog
+    - Smooth boxes
+    - Low latency
+    - Async-friendly
     """
+    await manager.connect(websocket)
+    print("📡 Client connected for video stream")
+
+    frame_queue: asyncio.Queue[np.ndarray] = asyncio.Queue(MAX_QUEUE_SIZE)
+    result_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+    stop_event = asyncio.Event()
+
+    # ---------------------------
+    # 👇 Background YOLO worker
+    # ---------------------------
+    async def yolo_worker():
+        last_time = time.time()
+
+        while not stop_event.is_set():
+            frame = await frame_queue.get()
+            if frame is None:
+                break
+
+            # YOLO inference
+            results = yolo(frame)  # type: ignore
+            detections: List[DetectionResponse] = []
+
+            for r in results:
+                for box in r.boxes:
+                    conf = float(box.conf[0])
+                    if conf < CONFIDENCE_THRESHOLD:
+                        continue
+
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    cls = int(box.cls[0])
+                    label = yolo.names[cls]
+
+                    detections.append(DetectionResponse(
+                        label=label,
+                        confidence=round(conf, 2),
+                        bbox=[x1, y1, x2, y2],
+                        timestampMs=int(datetime.now().timestamp() * 1000)
+                    ))
+
+            # FPS calculation
+            now = time.time()
+            fps = 1 / (now - last_time)
+            last_time = now
+
+            await result_queue.put({
+                "detections": [d.model_dump() for d in detections],
+                "fps": round(fps, 1),
+                "latency_ms": round((time.time() - now) * 1000, 1)
+            })
+
+    worker_task = asyncio.create_task(yolo_worker())
+
+    # ---------------------------
+    # 👇 Main WebSocket loop
+    # ---------------------------
     try:
-        await manager.connect(websocket)
-        print(f"📡 Client connected for video stream ({manager.connection_count}/{WS_MAX_CONNECTIONS})")
-
         while True:
-            try:
-                # Receive binary frame (JPEG bytes)
-                frame_bytes = await websocket.receive_bytes()
+            # Wait for either:
+            # - New frame from client
+            # - Processed detection to send back
+            done, pending = await asyncio.wait(
+                {
+                    asyncio.create_task(websocket.receive_bytes()),
+                    asyncio.create_task(result_queue.get())
+                },
+                return_when=asyncio.FIRST_COMPLETED
+            )
 
-                # Decode image
-                try:
-                    np_img = np.frombuffer(frame_bytes, np.uint8)
+            for task in done:
+                result = task.result()
+
+                # Case 1 — got new frame
+                if isinstance(result, (bytes, bytearray)):
+                    np_img = np.frombuffer(result, np.uint8)
                     frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+
                     if frame is None:
-                        raise ValueError("Failed to decode frame")
-                except Exception as e:
-                    await websocket.send_json({
-                        "error": f"Invalid frame data: {str(e)}"
-                    })
-                    continue
+                        continue
 
-                # Run YOLO detection
-                results = yolo(frame) # type: ignore
-                detections: List[DetectionResponse] = []
+                    # Drop old frame if queue is full
+                    if frame_queue.full():
+                        try:
+                            frame_queue.get_nowait()
+                        except:
+                            pass
 
-                for r in results:
-                    for box in r.boxes:
-                        conf = float(box.conf[0])
-                        if conf < CONFIDENCE_THRESHOLD:
-                            continue
-                            
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        cls = int(box.cls[0])
-                        label = yolo.names[cls] # type: ignore
-                        
-                        detections.append(DetectionResponse(
-                            label=label,
-                            confidence=round(conf, 2),
-                            bbox=[x1, y1, x2, y2]
-                        ))
+                    await frame_queue.put(frame)
 
-                # Send results back to client
-                await websocket.send_json([det.dict() for det in detections])
-                
-            except WebSocketDisconnect:
-                raise  # Re-raise to handle in outer try/except
-            except Exception as e:
-                await websocket.send_json({
-                    "error": f"Processing error: {str(e)}"
-                })
+                # Case 2 — YOLO returns results
+                elif isinstance(result, dict):
+                    await websocket.send_json(result)
 
     except WebSocketDisconnect:
-        print(f"🛑 Video stream client disconnected normally")
-    except Exception as e:
-        print(f"❌ Video stream error: {str(e)}")
+        print("🛑 Client disconnected")
+
     finally:
+        stop_event.set()
+        worker_task.cancel()
         manager.disconnect(websocket)
-        print(f"� Active video streams: {manager.connection_count}/{WS_MAX_CONNECTIONS}")
+        print("✔ WebSocket cleaned up")
