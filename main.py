@@ -318,106 +318,96 @@ async def websocket_detect(websocket: WebSocket):
 async def websocket_video_detect(websocket: WebSocket):
     """
     Optimized real-time detection WebSocket:
-    - No backlog
-    - Smooth boxes
-    - Low latency
-    - Async-friendly
+    - Sequential receive
+    - Async YOLO worker
+    - Smooth boxes, low latency
     """
     await manager.connect(websocket)
     print("📡 Client connected for video stream")
 
     frame_queue: asyncio.Queue[np.ndarray] = asyncio.Queue(MAX_QUEUE_SIZE)
     result_queue: asyncio.Queue[dict] = asyncio.Queue()
-
     stop_event = asyncio.Event()
 
     # ---------------------------
-    # 👇 Background YOLO worker
+    # 👇 YOLO worker (process frames)
     # ---------------------------
     async def yolo_worker():
         last_time = time.time()
-
         while not stop_event.is_set():
             frame = await frame_queue.get()
             if frame is None:
                 break
 
             # YOLO inference
-            results = yolo(frame)  # type: ignore
-            detections: List[DetectionResponse] = []
+            try:
+                results = yolo(frame)  # type: ignore
+                detections: list[dict] = []
 
-            for r in results:
-                for box in r.boxes:
-                    conf = float(box.conf[0])
-                    if conf < CONFIDENCE_THRESHOLD:
-                        continue
+                for r in results:
+                    for box in r.boxes:
+                        conf = float(box.conf[0])
+                        if conf < CONFIDENCE_THRESHOLD:
+                            continue
 
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cls = int(box.cls[0])
-                    label = yolo.names[cls]
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        cls = int(box.cls[0])
+                        label = yolo.names[cls]
 
-                    detections.append(DetectionResponse(
-                        label=label,
-                        confidence=round(conf, 2),
-                        bbox=[x1, y1, x2, y2],
-                        timestampMs=int(datetime.now().timestamp() * 1000)
-                    ))
+                        detections.append({
+                            "label": label,
+                            "confidence": round(conf, 2),
+                            "bbox": [x1, y1, x2, y2],
+                            "timestampMs": int(datetime.now().timestamp() * 1000)
+                        })
 
-            # FPS calculation
-            now = time.time()
-            fps = 1 / (now - last_time)
-            last_time = now
+                now = time.time()
+                fps = 1 / (now - last_time)
+                last_time = now
 
-            await result_queue.put({
-                "detections": [d.model_dump() for d in detections],
-                "fps": round(fps, 1),
-                "latency_ms": round((time.time() - now) * 1000, 1)
-            })
+                await result_queue.put({
+                    "detections": detections,
+                    "fps": round(fps, 1)
+                })
 
+            except Exception as e:
+                await result_queue.put({"error": f"Detection error: {str(e)}"})
+
+    # Start YOLO worker
     worker_task = asyncio.create_task(yolo_worker())
 
     # ---------------------------
-    # 👇 Main WebSocket loop
+    # 👇 Frame receiving & sending loop
     # ---------------------------
     try:
         while True:
-            # Wait for either:
-            # - New frame from client
-            # - Processed detection to send back
-            done, pending = await asyncio.wait(
-                {
-                    asyncio.create_task(websocket.receive_bytes()),
-                    asyncio.create_task(result_queue.get())
-                },
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            # 1️⃣ Receive frame from client
+            try:
+                data = await websocket.receive_bytes()
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                print("Receive error:", e)
+                break
 
-            for task in done:
-                result = task.result()
+            # 2️⃣ Decode frame
+            np_img = np.frombuffer(data, np.uint8)
+            frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
 
-                # Case 1 — got new frame
-                if isinstance(result, (bytes, bytearray)):
-                    np_img = np.frombuffer(result, np.uint8)
-                    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+            # 3️⃣ Put frame into queue (drop oldest if full)
+            if frame_queue.full():
+                try:
+                    frame_queue.get_nowait()
+                except:
+                    pass
+            await frame_queue.put(frame)
 
-                    if frame is None:
-                        continue
-
-                    # Drop old frame if queue is full
-                    if frame_queue.full():
-                        try:
-                            frame_queue.get_nowait()
-                        except:
-                            pass
-
-                    await frame_queue.put(frame)
-
-                # Case 2 — YOLO returns results
-                elif isinstance(result, dict):
-                    await websocket.send_json(result)
-
-    except WebSocketDisconnect:
-        print("🛑 Client disconnected")
+            # 4️⃣ Send all available results
+            while not result_queue.empty():
+                result = await result_queue.get()
+                await websocket.send_json(result)
 
     finally:
         stop_event.set()
