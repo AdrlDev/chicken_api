@@ -30,11 +30,7 @@ async def create_user(email: str, password: str, accountType: str = "admin"):
         return None, f"Password too short, minimum {MIN_PASSWORD_LENGTH} characters"
     
     # Truncate password to MAX_BCRYPT_LENGTH bytes (UTF-8 safe)
-    encoded = password.encode("utf-8")
-    if len(encoded) > MAX_BCRYPT_LENGTH:
-        encoded = encoded[:MAX_BCRYPT_LENGTH]
-    safe_password = encoded.decode("utf-8", "ignore")
-
+    safe_password = truncate_password(password)
     hashed = pwd_context.hash(safe_password)
     created_at = datetime.utcnow().isoformat()
 
@@ -79,3 +75,16 @@ def verify_password(plain: str, hashed: str) -> bool:
     # Truncate plain password to avoid bcrypt errors
     plain = plain[:MAX_BCRYPT_LENGTH]
     return pwd_context.verify(plain, hashed)
+
+def truncate_password(password: str) -> str:
+    # Truncate so that UTF-8 bytes are <= 72
+    encoded = password.encode("utf-8")
+    if len(encoded) <= MAX_BCRYPT_LENGTH:
+        return password
+    # Truncate character by character
+    truncated = ""
+    for char in password:
+        if len((truncated + char).encode("utf-8")) > MAX_BCRYPT_LENGTH:
+            break
+        truncated += char
+    return truncated
