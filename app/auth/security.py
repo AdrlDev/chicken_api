@@ -17,7 +17,7 @@ def create_access_token(data: dict) -> str:
     
     # Calculate expiration time
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire.timestamp()})
     
     # Encode the JWT using the secret key and algorithm
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
