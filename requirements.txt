@@ -29,6 +29,8 @@ typing-extensions>=4.12.2
 # ---- NEW FOR AUTH ----
 aiosqlite==0.20.0
 passlib[bcrypt]==1.7.4
+# FIXED: Pin bcrypt to 4.0.1 to prevent Passlib 72-byte error
+bcrypt==4.0.1
 python-jose==3.3.0
 
 # Optional: if you want email validation for login
