@@ -2,9 +2,7 @@
 # app/auth/security.py
 # This module handles JWT creation and user authentication in FastAPI.
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any
-
-from fastapi import Header, HTTPException, status, Depends
+from fastapi import HTTPException, status, Request
 from jose import JWTError, jwt
 
 # Import configuration and models from your project structure
@@ -28,33 +26,33 @@ def create_access_token(data: dict) -> str:
 # ----------------------------------------------------------------------
 ## --- 2. Authentication Dependency (get_current_user) ---
 
-async def get_current_user(
-    # FastAPI/Starlette automatically looks for the Authorization header
-    token: Annotated[str, Header()] = None  # type: ignore
-):
+# CHANGE FUNCTION SIGNATURE to accept the Request object
+async def get_current_user(request: Request):
     """
-    Dependency that decodes and validates the JWT from the Authorization header.
-    Returns the user dictionary if valid, raises 401 otherwise.
+    Dependency that decodes and validates the JWT by manually reading 
+    the Authorization header from the Request object.
     """
-    if not token:
+    # MANUALLY RETRIEVE the header, standardizing to lowercase 'authorization'
+    token = request.headers.get("authorization") 
+    
+    # This is the line that was failing before:
+    if not token: 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated: Missing Token",
+            detail="Not authenticated: Missing Token (Failed manual check)",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Handle the "Bearer " prefix if it's included in the header value
+    # Handle the "Bearer " prefix (Now done on the retrieved string)
     if token.lower().startswith("bearer "):
         token = token[7:] 
-        
+    
+    # The rest of your logic remains the same (try/except block)
     try:
-        # Decode the token. This automatically checks the signature and the 'exp' (expiration) claim.
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         
-        # The 'sub' claim (Subject) holds the user's email, which we set during login
         email_value = payload.get("sub")
         
-        # 2. Check if the value is None (if 'sub' was missing from the token)
         if email_value is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -62,11 +60,9 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # 3. Since we checked it's not None, we can now safely assert the type
         email: str = email_value
             
     except JWTError:
-        # This catches all validation failures (expired token, invalid signature, etc.)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials: Token decoding failed or expired",
@@ -83,5 +79,4 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
         
-    # The dependency successfully resolves, and the user data is passed to the endpoint
     return user
