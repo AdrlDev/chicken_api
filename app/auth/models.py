@@ -28,25 +28,24 @@ async def create_user(email: str, password: str, accountType: str = "admin"):
     # Check password length
     if len(password) < MIN_PASSWORD_LENGTH:
         return None, f"Password too short, minimum {MIN_PASSWORD_LENGTH} characters"
-    if len(password.encode("utf-8")) > MAX_BCRYPT_LENGTH:
-        return None, f"Password too long, maximum {MAX_BCRYPT_LENGTH} bytes"
+    
+    # Truncate password to MAX_BCRYPT_LENGTH bytes (UTF-8 safe)
+    encoded = password.encode("utf-8")
+    if len(encoded) > MAX_BCRYPT_LENGTH:
+        encoded = encoded[:MAX_BCRYPT_LENGTH]
+    safe_password = encoded.decode("utf-8", "ignore")
 
-    db = await get_db()
-    # Truncate password to MAX_BCRYPT_LENGTH bytes safely
-    safe_password = password.encode("utf-8")[:MAX_BCRYPT_LENGTH].decode("utf-8", "ignore")
     hashed = pwd_context.hash(safe_password)
     created_at = datetime.utcnow().isoformat()
 
+    db = await get_db()
     try:
         await db.execute(
-            """
-            INSERT INTO users (email, password, accountType, createdAt)
-            VALUES (?, ?, ?, ?)
-            """,
+            "INSERT INTO users (email, password, accountType, createdAt) VALUES (?, ?, ?, ?)",
             (email, hashed, accountType, created_at)
         )
         await db.commit()
-    except Exception as e:
+    except Exception:
         await db.close()
         return None, "Email already exists or database error"
 
