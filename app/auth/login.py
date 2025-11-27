@@ -1,6 +1,11 @@
-from fastapi import APIRouter, HTTPException
-from .schemas import UserCreate, UserLogin, UserOut
-from .models import create_user, get_user_by_email, verify_password, MAX_BCRYPT_LENGTH
+## app/auth/login.py
+# app/auth/login.py
+# This module defines the authentication routes for user registration and login.
+from fastapi import APIRouter, HTTPException, Depends
+from .schemas import UserCreate, UserLogin, UserOut, Token
+from .models import create_user, get_user_by_email, verify_password
+from typing import Annotated
+from .security import get_current_user, create_access_token
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -23,7 +28,7 @@ async def register(data: UserCreate):
         createdAt=user["createdAt"]  # type: ignore
     )
 
-@router.post("/login", response_model=UserOut)
+@router.post("/login", response_model=Token) # <-- CHANGE RESPONSE MODEL TO Token
 async def login(data: UserLogin):
     user = await get_user_by_email(data.email)
 
@@ -33,9 +38,29 @@ async def login(data: UserLogin):
     if not verify_password(data.password, user["password"]):
         raise HTTPException(status_code=400, detail="Invalid credentials")
 
+    # --- ACTION REQUIRED: Generate JWT ---
+    access_token = create_access_token(
+        data={"sub": user["email"]} # Use email as the subject for the token
+    )
+    
+    # --- ACTION REQUIRED: Return Token ---
+    return Token(access_token=access_token, token_type="bearer") # type: ignore
+
+# --- NEW PROTECTED ROUTE ---
+@router.get("/me", response_model=UserOut)
+async def read_users_me(
+    # FastAPI automatically calls get_current_user. 
+    # If get_current_user raises an HTTPException (e.g., 401), the function below is never called.
+    current_user: Annotated[dict, Depends(get_current_user)]
+):
+    """
+    Endpoint to retrieve the current logged-in user's data.
+    Requires a valid JWT in the Authorization: Bearer <token> header.
+    """
+    # The current_user variable holds the result (the user row/dict) returned by get_current_user
     return UserOut(
-        id=user["id"],
-        email=user["email"],
-        accountType=user["accountType"],
-        createdAt=user["createdAt"]
+        id=current_user["id"],
+        email=current_user["email"],
+        accountType=current_user["accountType"],
+        createdAt=current_user["createdAt"]
     )

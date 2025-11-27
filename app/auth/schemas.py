@@ -1,7 +1,13 @@
+# File: app/auth/schemas.py
+# app/auth/schemas.py
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 
 MAX_BCRYPT_LENGTH = 72
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 class UserCreate(BaseModel):
     email: EmailStr
