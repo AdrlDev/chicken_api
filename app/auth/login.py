@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from .schemas import UserCreate, UserLogin, UserOut
 from .models import create_user, get_user_by_email, verify_password
 
-router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
+router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/register", response_model=UserOut)
