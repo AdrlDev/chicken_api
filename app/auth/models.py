@@ -6,6 +6,7 @@ from email_validator import validate_email, EmailNotValidError
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 MAX_BCRYPT_LENGTH = 72
+MIN_PASSWORD_LENGTH = 6
 
 
 def validate_email_address(email: str) -> str:
@@ -18,21 +19,22 @@ def validate_email_address(email: str) -> str:
 
 
 async def create_user(email: str, password: str, accountType: str = "admin"):
-    """
-    Creates a new user with hashed password, truncated to 72 bytes for bcrypt.
-    Returns None if email is invalid or already exists.
-    """
     # Validate email
     try:
         email = validate_email_address(email)
     except ValueError:
-        return None  # invalid email
+        return None, "Invalid email"
 
-    # Truncate password to 72 characters to satisfy bcrypt
-    password = password[:MAX_BCRYPT_LENGTH]
+    # Check password length
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return None, f"Password too short, minimum {MIN_PASSWORD_LENGTH} characters"
+    if len(password.encode("utf-8")) > MAX_BCRYPT_LENGTH:
+        return None, f"Password too long, maximum {MAX_BCRYPT_LENGTH} bytes"
 
     db = await get_db()
-    hashed = pwd_context.hash(password)
+    # Truncate password to MAX_BCRYPT_LENGTH bytes safely
+    safe_password = password.encode("utf-8")[:MAX_BCRYPT_LENGTH].decode("utf-8", "ignore")
+    hashed = pwd_context.hash(safe_password)
     created_at = datetime.utcnow().isoformat()
 
     try:
@@ -44,9 +46,9 @@ async def create_user(email: str, password: str, accountType: str = "admin"):
             (email, hashed, accountType, created_at)
         )
         await db.commit()
-    except Exception:
+    except Exception as e:
         await db.close()
-        return None  # email exists or other DB error
+        return None, "Email already exists or database error"
 
     user = await db.execute(
         "SELECT id, email, accountType, createdAt FROM users WHERE email = ?",
@@ -54,7 +56,7 @@ async def create_user(email: str, password: str, accountType: str = "admin"):
     )
     row = await user.fetchone()
     await db.close()
-    return row
+    return row, None
 
 
 async def get_user_by_email(email: str):
