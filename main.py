@@ -43,6 +43,10 @@ from app.process_image import process_image, processing_tasks, AutoLabelResponse
 from app.ws_manager import ws_manager
 from app.trainer_ws import start_training_thread
 
+from contextlib import asynccontextmanager
+from app.auth.login import router as auth_router
+from app.auth.database import init_db
+
 # Create necessary directories
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
@@ -68,11 +72,19 @@ class TrainStatusResponse(BaseModel):
     recent_logs: Optional[List[str]] = None
     status: Optional[str] = None
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    await init_db()
+    yield
+    # shutdown (optional cleanup)
+
 # Initialize FastAPI app with metadata
 app = FastAPI(
     title="ChickenAI",
     version="1.0",
-    description="API for chicken disease detection and model training using YOLOv8"
+    description="API for chicken disease detection and model training using YOLOv8",
+    lifespan=lifespan
 )
 
 stop_live = False  # global flag for webcam detection
@@ -414,3 +426,9 @@ async def websocket_video_detect(websocket: WebSocket):
         worker_task.cancel()
         manager.disconnect(websocket)
         print("✔ WebSocket cleaned up")
+
+# ---------------------------------
+# 🐔 AUTHENTICATION ENDPOINTS
+# ---------------------------------
+
+app.include_router(auth_router)
