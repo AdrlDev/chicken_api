@@ -77,11 +77,10 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 def truncate_password(password: str) -> str:
-    """Truncate password so its UTF-8 encoding is <= 72 bytes."""
+    """Truncate a UTF-8 string to ≤ 72 bytes safely."""
     truncated = ""
-    for char in password:
-        candidate = truncated + char
-        if len(candidate.encode("utf-8")) > MAX_BCRYPT_LENGTH:
+    for c in password:
+        if len((truncated + c).encode("utf-8")) > MAX_BCRYPT_LENGTH:
             break
-        truncated = candidate
+        truncated += c
     return truncated
