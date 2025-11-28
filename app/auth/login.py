@@ -51,16 +51,20 @@ async def login(data: UserLogin):
 async def read_users_me(
     # FastAPI automatically calls get_current_user. 
     # If get_current_user raises an HTTPException (e.g., 401), the function below is never called.
-    current_user: Annotated[dict, Depends(get_current_user)]
+    current_user: UserOut = Depends(get_current_user)
 ):
     """
-    Endpoint to retrieve the current logged-in user's data.
-    Requires a valid JWT in the Authorization: Bearer <token> header.
+    Returns the currently authenticated user's details.
     """
-    # The current_user variable holds the result (the user row/dict) returned by get_current_user
-    return UserOut(
-        id=current_user["id"],
-        email=current_user["email"],
-        accountType=current_user["accountType"],
-        createdAt=current_user["createdAt"]
-    )
+    
+    # 💥 FIX: Change from dictionary access (current_user["id"]) 
+    #          to attribute access (current_user.id)
+    return {
+        "id": current_user.id,             # <-- Change required here
+        "email": current_user.email,       # <-- Change required here
+        "accountType": current_user.accountType, # <-- Change required here
+        "createdAt": current_user.createdAt  # <-- Change required here
+    }
+    
+    # Alternatively, if UserOut is correctly configured, you can just return the object:
+    # return current_user
