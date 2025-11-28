@@ -4,8 +4,8 @@ from pydantic import BaseModel, Field
 
 # Ensure the disease labels match the ones used in your frontend chart
 DISEASE_LABELS = {
-    "Avian Influenza", "Blue Comb", "Coccidiosis", "Coccidiosis Poops", 
-    "Fowl Cholera", "Fowl-pox", "Mycotic Infections", "Salmo", "Healthy"
+    "avian influenza", "blue comb", "coccidiosis", "coccidiosis poops",
+    "fowl cholera", "fowl-pox", "mycotic infections", "salmo", "healthy"
 }
 
 class ScanResultIn(BaseModel):
