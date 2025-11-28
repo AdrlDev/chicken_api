@@ -4,6 +4,7 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status, Request
 from jose import JWTError, jwt
+from typing import Any, Union, cast
 
 # Import configuration and models from your project structure
 from .config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -80,3 +81,12 @@ async def get_current_user(request: Request):
         )
         
     return user
+
+def decode_access_token(token: str) -> Union[dict[str, Any], None]:
+    """Decodes and validates the JWT."""
+    try:
+        # Note: JWTError is a generic error for decoding/validation issues
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return cast(dict[str, Any], payload)
+    except JWTError:
+        return None

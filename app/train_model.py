@@ -1,3 +1,6 @@
+# # app/train_model.py
+# This module handles YOLOv8 training, dataset management, and WebSocket communication.
+
 import os
 import shutil
 import threading
