@@ -13,14 +13,10 @@ class ScanResultIn(BaseModel):
     # Use 'Healthy' if no specific disease is detected
     diagnosis: str = Field(..., description="The diagnosis result (must be one of the recognized labels).")
     
-    # Optional: Add context like timestamp (server can generate this) or source
-    farm_id: int = Field(..., description="ID of the farm or user performing the scan.")
-    
     class Config:
         json_schema_extra = {
             "example": {
                 "diagnosis": "Healthy",
-                "farm_id": 101,
             }
         }
 

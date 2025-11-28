@@ -1,7 +1,6 @@
 # app/api/chicken_scans/routes.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 from .models import ScanResultIn, ScanResultOut, DISEASE_LABELS
 from .db import insert_scan_result, get_scan_counts_by_diagnosis
 from typing import Annotated
@@ -16,9 +15,6 @@ router = APIRouter(
     prefix="/scans",
     tags=["chicken_scans"],
 )
-
-# 1. Define the OAuth2 scheme for token extraction (Looks for 'Bearer <token>' in the Authorization header)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login") # Point this to your login endpoint
 
 # 2. Updated Dependency function to extract and validate the User ID
 # ----------------------------------------------------------------------
