@@ -93,20 +93,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://aedev.cloud"
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins, # Allows localhost
-    allow_credentials=True,
-    allow_methods=["*"],   # Fixes the 405 error
-    allow_headers=["*"],
-)
-
 stop_live = False  # global flag for webcam detection
 
 # Response model for initial upload response
