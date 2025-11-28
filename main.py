@@ -82,15 +82,6 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("Database initialized.")
 
-    # 💡 FIX: Load the large model only ONCE here.
-    # Replace this with the actual way you initialize your global 'yolo' object.
-    try:
-        yolo() # Assuming yolo.load_yolo_model() is the function from above
-    except Exception as e:
-        # Handle case where model loading itself fails
-        print(f"FATAL: Failed to load YOLO model: {e}") 
-        # You might want to raise an exception here to stop startup
-
     yield
     # shutdown (optional cleanup)
 
