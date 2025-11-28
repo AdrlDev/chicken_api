@@ -25,6 +25,7 @@ from fastapi import (
     status,
     WebSocketDisconnect
 )
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
@@ -90,6 +91,20 @@ app = FastAPI(
     version="1.0",
     description="API for chicken disease detection and model training using YOLOv8",
     lifespan=lifespan
+)
+
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://aedev.cloud"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # Allows localhost
+    allow_credentials=True,
+    allow_methods=["*"],   # Fixes the 405 error
+    allow_headers=["*"],
 )
 
 stop_live = False  # global flag for webcam detection
