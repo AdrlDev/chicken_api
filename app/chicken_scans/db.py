@@ -9,8 +9,16 @@ DATABASE_URL = "app/chicken_scans/chicken_health_scans.db"
 # --- Database Connection and Setup ---
 
 async def get_db_connection():
-    """Returns an asynchronous connection to the SQLite database."""
-    return await aiosqlite.connect(DATABASE_URL)
+    """Returns an asynchronous connection to the SQLite database with safer settings."""
+    # 💡 FIX: Increase timeout for better concurrency handling
+    db = await aiosqlite.connect(
+        database=DATABASE_URL,
+        timeout=10, # Wait up to 10 seconds for the database to unlock
+    )
+    # Ensure rows are returned as sqlite3.Row objects (which work with dict() conversion)
+    # db.row_factory = aiosqlite.Row # (If you were not using dict(user_row))
+
+    return db
 
 async def setup_db():
     """Initializes the database table if it doesn't exist."""
