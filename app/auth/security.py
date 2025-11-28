@@ -29,7 +29,7 @@ def create_access_token(data: dict) -> str:
 ## --- 2. Authentication Dependency (get_current_user) ---
 
 # CHANGE FUNCTION SIGNATURE to accept the Request object
-async def get_current_user(request: Request):
+async def get_current_user(request: Request)-> UserOut:
     """
     Dependency that decodes and validates the JWT by manually reading 
     the Authorization header from the Request object.
@@ -80,5 +80,7 @@ async def get_current_user(request: Request):
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    user_data_dict = dict(user)
         
-    return dict(user)
+    return UserOut.model_validate(user_data_dict)
