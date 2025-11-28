@@ -1,7 +1,7 @@
 # app/auth/models.py
 # app/auth/models.py
 # This module contains the database models and functions for user management.
-from .database import get_db
+from ..database.database import get_db
 from passlib.context import CryptContext
 from datetime import datetime
 from email_validator import validate_email, EmailNotValidError

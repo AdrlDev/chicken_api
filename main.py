@@ -46,9 +46,8 @@ from app.trainer_ws import start_training_thread
 
 from contextlib import asynccontextmanager
 from app.auth.login import router as auth_router
-from app.auth.database import init_db
+from app.database.database import init_db
 from app.chicken_scans.routes import router as scan_router
-from app.chicken_scans.db import setup_db # Import the setup function
 
 # Create necessary directories
 Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
@@ -80,7 +79,6 @@ async def lifespan(app: FastAPI):
     # startup
     print("Initializing database...")
     await init_db()
-    await setup_db()
     print("Database initialized.")
     yield
     # shutdown (optional cleanup)

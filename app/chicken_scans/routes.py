@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from .models import ScanResultIn, ScanResultOut, DISEASE_LABELS
-from .db import insert_scan_result, get_scan_counts_by_diagnosis
+from ..database.db import insert_scan_result, get_scan_counts_by_diagnosis
 from typing import Annotated
 # Assuming you have an auth system like this:
 # from app.auth.dependencies import get_current_user 

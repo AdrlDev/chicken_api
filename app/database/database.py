@@ -2,7 +2,7 @@
 import aiosqlite
 import os
 
-DB_PATH = "app/auth/auth.db"
+DB_PATH = "app/database/data.db"
 
 async def init_db():
     os.makedirs("app/auth", exist_ok=True)
@@ -19,8 +19,17 @@ async def init_db():
             );
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                diagnosis TEXT NOT NULL,
+                farm_id INTEGER NOT NULL,
+                timestamp TEXT NOT NULL
+            );
+            """
+        )
         await db.commit()
-
 
 async def get_db():
     db = await aiosqlite.connect(DB_PATH)
