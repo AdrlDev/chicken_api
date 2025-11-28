@@ -8,6 +8,10 @@ from typing import Annotated
 from app.auth.security import decode_access_token
 # Assuming you have an auth system like this:
 # from app.auth.dependencies import get_current_user 
+# 💡 IMPORT: Bring in the full user object validation function 
+# and the User model from your auth system.
+from app.auth.security import get_current_user 
+from app.auth.schemas import UserOut # Assuming your ORM/DB model is named User and has an 'id' attribute
 
 router = APIRouter(
     prefix="/scans",
@@ -18,36 +22,17 @@ router = APIRouter(
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login") # Point this to your login endpoint
 
 # 2. Updated Dependency function to extract and validate the User ID
-async def get_current_user_id(token: Annotated[str, Depends(oauth2_scheme)]) -> int:
+# ----------------------------------------------------------------------
+# 💡 FIXED DEPENDENCY: Get the User ID from the validated User object
+# ----------------------------------------------------------------------
+async def get_current_user_id(current_user: Annotated[UserOut, Depends(get_current_user)]) -> int:
     """
-    Extracts the user ID from the JWT token provided in the Authorization header.
-    Raises 401 Unauthorized if the token is missing, expired, or invalid.
+    Retrieves the user's numerical ID from the fully validated User object 
+    (now correctly type-hinted as UserOut).
     """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
     
-    payload = decode_access_token(token)
-    
-    if payload is None:
-        raise credentials_exception
-
-    # **CRITICAL:** Ensure the user ID key used here matches the key you put into the token during login
-    user_id_str = payload.get("sub") 
-    
-    if user_id_str is None:
-        raise credentials_exception
-    
-    try:
-        # The user ID is stored as a string in the JWT, so we convert it to an integer
-        user_id = int(user_id_str)
-    except ValueError:
-        # Handles case where 'sub' is not a valid integer
-        raise credentials_exception
-    
-    return user_id
+    # The Pydantic model ensures 'id' exists, so we don't need hasattr()
+    return current_user.id # 👈 Returns the numerical ID (int)
 
 @router.post(
     "/", 
