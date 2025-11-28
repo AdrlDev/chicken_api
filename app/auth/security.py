@@ -28,59 +28,63 @@ def create_access_token(data: dict) -> str:
 # ----------------------------------------------------------------------
 ## --- 2. Authentication Dependency (get_current_user) ---
 
-# CHANGE FUNCTION SIGNATURE to accept the Request object
-async def get_current_user(request: Request)-> UserOut:
+async def get_current_user(request: Request) -> UserOut:
     """
-    Dependency that decodes and validates the JWT by manually reading 
-    the Authorization header from the Request object.
+    Dependency that decodes and validates the JWT, looks up the user, 
+    and converts the DB row to a Pydantic UserOut model.
     """
-    # MANUALLY RETRIEVE the header, standardizing to lowercase 'authorization'
+    
     token = request.headers.get("authorization") 
     
-    # This is the line that was failing before:
-    if not token: 
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated: Missing Token (Failed manual check)",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Initialize exception object for cleaner error handling
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     
-    # Handle the "Bearer " prefix (Now done on the retrieved string)
+    if not token: 
+        credentials_exception.detail = "Not authenticated: Missing Token"
+        raise credentials_exception
+    
+    # Ensure token is stripped of 'Bearer ' prefix
     if token.lower().startswith("bearer "):
         token = token[7:] 
+        
+    email: str = "" # Initialize 'email' to satisfy Pylance
     
-    # The rest of your logic remains the same (try/except block)
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        
         email_value = payload.get("sub")
         
         if email_value is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload: Missing 'sub' claim",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            credentials_exception.detail = "Invalid token payload: Missing 'sub' claim"
+            raise credentials_exception
         
-        email: str = email_value
+        email = email_value
             
     except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials: Token decoding failed or expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Look up the user in the database to ensure they still exist and are active
-    user = await get_user_by_email(email)
-    
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    user_data_dict = dict(user)
+        credentials_exception.detail = "Invalid credentials: Token decoding failed or expired"
+        raise credentials_exception
         
-    return UserOut.model_validate(user_data_dict)
+    # Look up the user in the database
+    user_row = await get_user_by_email(email)
+    
+    if user_row is None:
+        credentials_exception.detail = "User not found"
+        raise credentials_exception
+        
+    # 💥 CRITICAL FIX: Explicitly convert the sqlite3.Row object to a dict,
+    # then validate it with Pydantic. This resolves most 500 errors in this flow.
+    try:
+        user_data_dict = dict(user_row)
+        return UserOut.model_validate(user_data_dict)
+    except Exception as e:
+        # This catches errors if the database columns don't match the Pydantic schema
+        print(f"Pydantic validation failed during /auth/me: {e}")
+        # Return a 401 instead of a 500, as the data is bad/invalid for this API
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User data format error. Contact admin.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
