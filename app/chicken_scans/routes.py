@@ -9,7 +9,7 @@ from typing import Annotated
 # from app.auth.dependencies import get_current_user 
 # 💡 IMPORT: Bring in the full user object validation function 
 # and the User model from your auth system.
-from app.auth.security import get_current_user_validate 
+from app.auth.security import get_current_user 
 from app.auth.schemas import UserOut # Assuming your ORM/DB model is named User and has an 'id' attribute
 
 router = APIRouter(
@@ -24,7 +24,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login") # Point this to you
 # ----------------------------------------------------------------------
 # 💡 FIXED DEPENDENCY: Get the User ID from the validated User object
 # ----------------------------------------------------------------------
-async def get_current_user_id(current_user: Annotated[UserOut, Depends(get_current_user_validate)]) -> int:
+async def get_current_user_id(current_user: Annotated[UserOut, Depends(get_current_user)]) -> int:
     """
     Retrieves the user's numerical ID from the fully validated User object.
     """
