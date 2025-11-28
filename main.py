@@ -80,7 +80,6 @@ async def lifespan(app: FastAPI):
     # startup
     print("Initializing database...")
     await init_db()
-    await setup_db()
     print("Database initialized.")
 
     # 💡 FIX: Load the large model only ONCE here.
