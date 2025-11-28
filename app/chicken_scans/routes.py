@@ -5,12 +5,11 @@ from fastapi.security import OAuth2PasswordBearer
 from .models import ScanResultIn, ScanResultOut, DISEASE_LABELS
 from .db import insert_scan_result, get_scan_counts_by_diagnosis
 from typing import Annotated
-from app.auth.security import decode_access_token
 # Assuming you have an auth system like this:
 # from app.auth.dependencies import get_current_user 
 # 💡 IMPORT: Bring in the full user object validation function 
 # and the User model from your auth system.
-from app.auth.security import get_current_user 
+from app.auth.security import get_current_user_validate 
 from app.auth.schemas import UserOut # Assuming your ORM/DB model is named User and has an 'id' attribute
 
 router = APIRouter(
@@ -25,14 +24,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login") # Point this to you
 # ----------------------------------------------------------------------
 # 💡 FIXED DEPENDENCY: Get the User ID from the validated User object
 # ----------------------------------------------------------------------
-async def get_current_user_id(current_user: Annotated[UserOut, Depends(get_current_user)]) -> int:
+async def get_current_user_id(current_user: Annotated[UserOut, Depends(get_current_user_validate)]) -> int:
     """
-    Retrieves the user's numerical ID from the fully validated User object 
-    (now correctly type-hinted as UserOut).
+    Retrieves the user's numerical ID from the fully validated User object.
     """
     
-    # The Pydantic model ensures 'id' exists, so we don't need hasattr()
-    return current_user.id # 👈 Returns the numerical ID (int)
+    # 💥 FINAL CLEANUP: Now that get_current_user returns a Pydantic model, 
+    # we can use clean dot-access.
+    return current_user.id # 👈 Use attribute access (.id)
 
 @router.post(
     "/", 
