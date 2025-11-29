@@ -4,7 +4,7 @@ import threading
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from app.detection import _run_detection
-from app.main import stop_live # Need to import the global flag
+from app.utils.websocket_manager_shared import stop_live
 
 router = APIRouter(
     tags=["Live Detection"],

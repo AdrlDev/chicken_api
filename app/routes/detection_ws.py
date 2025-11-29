@@ -11,7 +11,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from app.utils.utils import yolo
 from app.utils.config import CONFIDENCE_THRESHOLD, WS_MAX_CONNECTIONS
-from app.main import ConnectionManager # Need to import the manager
+from app.utils.websocket_manager_shared import manager
 from app.utils.ws_manager import ws_manager as train_ws_manager # Use alias for clarity
 
 router = APIRouter(
@@ -25,8 +25,6 @@ class DetectionResponse(BaseModel):
     bbox: List[float]
     timestampMs: int
 
-# Use the same manager as defined in main.py
-manager = ConnectionManager()
 MAX_QUEUE_SIZE = 1 
 
 # WebSocket endpoint for training logs (moved here)

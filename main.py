@@ -25,33 +25,6 @@ Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------
-# 🔴 KEEP: Global Variables/Managers
-# ---------------------------------
-stop_live = False  # global flag for webcam detection (used by live_detection.py)
-
-class ConnectionManager:
-    """Manager for realtime detection WebSockets."""
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        if len(self.active_connections) >= WS_MAX_CONNECTIONS:
-            # Note: We must re-import WebSocketDisconnect here if we keep this class modular.
-            from fastapi import WebSocketDisconnect 
-            raise WebSocketDisconnect(code=1008, reason="Maximum connections reached")
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-
-    @property
-    def connection_count(self):
-        return len(self.active_connections)
-
-manager = ConnectionManager() # Used by detection_ws.py
-
-# ---------------------------------
 # 🚀 APP LIFESPAN & INITIALIZATION
 # ---------------------------------
 @asynccontextmanager
