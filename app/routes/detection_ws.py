@@ -176,18 +176,39 @@ async def websocket_video_detect(websocket: WebSocket):
     try:
         while True:
             # 1️⃣ Receive either frame bytes or a text control message
-            message = await websocket.receive() # Use receive() to get type (text or bytes)
+            # The client's ArrayBuffer arrives as 'bytes'
+            message = await websocket.receive()
+            
+            data = None
+            signal = None
             
             if "bytes" in message:
-                # ---------------------------------------------
-                # CASE 1: Received video frame data (bytes)
-                # ---------------------------------------------
                 data = message["bytes"]
+            elif "text" in message:
+                signal = message["text"].strip().upper()
+
+            # ---------------------------------------------
+            # ⭐️ CASE 2: Received control signal (text)
+            # ---------------------------------------------
+            if signal == "STOP" or signal == "STOP_DETECTION":
+                print(f"🛑 Received STOP signal from client.")
+                break # Exit the main loop for cleanup
+
+            # ---------------------------------------------
+            # ⭐️ CASE 1: Received video frame data (bytes)
+            # ---------------------------------------------
+            if data is not None:
                 
                 # 2️⃣ Decode frame
+                # Ensure the data buffer is not empty before decoding
+                if len(data) == 0:
+                     continue
+                
                 np_img = np.frombuffer(data, np.uint8)
                 frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
                 if frame is None:
+                    # This happens if the buffer couldn't be decoded (e.g., corrupt JPEG)
+                    print("⚠️ Failed to decode frame data.")
                     continue
 
                 # 3️⃣ Put frame into queue (drop oldest if full)
@@ -196,28 +217,17 @@ async def websocket_video_detect(websocket: WebSocket):
                         frame_queue.get_nowait()
                     except:
                         pass
-                await frame_queue.put(frame)
+                # The worker will block here if the queue is full and not dropped, but that's handled by get_nowait
+                await frame_queue.put(frame) 
 
                 # 4️⃣ Send all available results
                 while not result_queue.empty():
                     result = await result_queue.get()
                     await websocket.send_json(result)
+            
+            # If message contained neither 'bytes' nor 'text', loop continues.
+            # This handles keep-alives or malformed messages gracefully.
 
-            elif "text" in message:
-                # ---------------------------------------------
-                # ⭐️ CASE 2: Received control signal (text)
-                # ---------------------------------------------
-                signal = message["text"].strip().upper()
-                if signal == "STOP" or signal == "STOP_DETECTION":
-                    print(f"🛑 Received STOP signal from client.")
-                    
-                    # ⭐️ CRITICAL FIX: Gracefully exit the loop and rely on 'finally'
-                    break
-    except WebSocketDisconnect:
-        print("🛑 Client disconnected normally")
-        # The 'finally' block will handle cleanup
-    except Exception as e:
-        print(f"❌ WebSocket error: {str(e)}")
     finally:
         stop_event.set()
         worker_task.cancel()
