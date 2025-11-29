@@ -175,58 +175,33 @@ async def websocket_video_detect(websocket: WebSocket):
     # ---------------------------
     try:
         while True:
-            # 1️⃣ Receive either frame bytes or a text control message
-            # The client's ArrayBuffer arrives as 'bytes'
-            message = await websocket.receive()
-            
-            data = None
-            signal = None
-            
-            if "bytes" in message:
-                data = message["bytes"]
-            elif "text" in message:
-                signal = message["text"].strip().upper()
+            # 1️⃣ Receive frame from client
+            try:
+                data = await websocket.receive_bytes()
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                print("Receive error:", e)
+                break
 
-            # ---------------------------------------------
-            # ⭐️ CASE 2: Received control signal (text)
-            # ---------------------------------------------
-            if signal == "STOP" or signal == "STOP_DETECTION":
-                print(f"🛑 Received STOP signal from client.")
-                break # Exit the main loop for cleanup
+            # 2️⃣ Decode frame
+            np_img = np.frombuffer(data, np.uint8)
+            frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
 
-            # ---------------------------------------------
-            # ⭐️ CASE 1: Received video frame data (bytes)
-            # ---------------------------------------------
-            if data is not None:
-                
-                # 2️⃣ Decode frame
-                # Ensure the data buffer is not empty before decoding
-                if len(data) == 0:
-                     continue
-                
-                np_img = np.frombuffer(data, np.uint8)
-                frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-                if frame is None:
-                    # This happens if the buffer couldn't be decoded (e.g., corrupt JPEG)
-                    print("⚠️ Failed to decode frame data.")
-                    continue
+            # 3️⃣ Put frame into queue (drop oldest if full)
+            if frame_queue.full():
+                try:
+                    frame_queue.get_nowait()
+                except:
+                    pass
+            await frame_queue.put(frame)
 
-                # 3️⃣ Put frame into queue (drop oldest if full)
-                if frame_queue.full():
-                    try:
-                        frame_queue.get_nowait()
-                    except:
-                        pass
-                # The worker will block here if the queue is full and not dropped, but that's handled by get_nowait
-                await frame_queue.put(frame) 
-
-                # 4️⃣ Send all available results
-                while not result_queue.empty():
-                    result = await result_queue.get()
-                    await websocket.send_json(result)
-            
-            # If message contained neither 'bytes' nor 'text', loop continues.
-            # This handles keep-alives or malformed messages gracefully.
+            # 4️⃣ Send all available results
+            while not result_queue.empty():
+                result = await result_queue.get()
+                await websocket.send_json(result)
 
     finally:
         stop_event.set()
