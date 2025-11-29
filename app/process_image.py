@@ -51,38 +51,48 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         ls_client = get_client()
 
         # -------------------- CLASSES --------------------
-        # ... (CLASSES logic remains unchanged) ...
         classes = []
         CLASSES_PATH.parent.mkdir(parents=True, exist_ok=True)
         
-        # Initialize classes with DEFAULT_CLASSES if classes.txt doesn't exist or is empty
-        if not CLASSES_PATH.exists() or os.stat(CLASSES_PATH).st_size == 0:
-            classes = DEFAULT_CLASSES
-        else:
+        needs_write = False
+        
+        # 1. Load Existing Classes
+        if CLASSES_PATH.exists() and os.stat(CLASSES_PATH).st_size > 0:
             with open(CLASSES_PATH, "r") as f:
                 classes = [line.strip() for line in f if line.strip()]
 
-        # Ensure all DEFAULT_CLASSES are in the file and in the correct order
-        classes_lower = [c.lower() for c in classes]
-        new_classes_added = False
-        for default_class in DEFAULT_CLASSES:
-            if default_class.lower() not in classes_lower:
-                classes.append(default_class)
-                classes_lower.append(default_class.lower())
-                new_classes_added = True
-        
-        # Save updated classes.txt only if something was changed
-        if new_classes_added or classes != DEFAULT_CLASSES:
-            with open(CLASSES_PATH, "w") as f:
-                f.write("\n".join(DEFAULT_CLASSES) + "\n")
+        # 2. Enforce DEFAULT_CLASSES (Guaranteed Save)
+        if classes != DEFAULT_CLASSES:
             classes = DEFAULT_CLASSES
-            classes_lower = [c.lower() for c in classes]
+            needs_write = True
 
+        # ⭐️ FIX: Define classes_lower here, using the guaranteed 'classes' list
+        classes_lower = [c.lower() for c in classes] # <-- NOW ALWAYS DEFINED
 
-        # Get the index of the current label, which MUST be in the classes list now
+        # 3. Check and Add New Label
         label_lower = label_name.lower() if label_name else None
+        
+        if label_lower:
+            # classes_lower is already available here, no need to redefine unless we change 'classes'
+            if label_lower not in classes_lower:
+                # The label name from parameters is new, so add it.
+                classes.append(label_name)
+                needs_write = True
+                
+                # Update classes_lower immediately after adding a new class
+                classes_lower = [c.lower() for c in classes] # Update for correct index look-up
+
+
+        # 4. Save to File System
+        if needs_write: 
+            with open(CLASSES_PATH, "w") as f:
+                f.write("\n".join(classes) + "\n")
+
+        
+        # 5. Final Index Look-up
         if not label_lower or label_lower not in classes_lower:
-            raise ValueError(f"Label name '{label_name}' is not one of the predefined classes.")
+            # This check now safely uses the always-defined classes_lower
+            raise ValueError(f"Label name '{label_name}' is invalid or missing.")
 
         label_index = classes_lower.index(label_lower)
 
