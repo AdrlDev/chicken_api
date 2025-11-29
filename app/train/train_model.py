@@ -8,7 +8,7 @@ import json
 import random
 import asyncio
 from ultralytics import YOLO  # type: ignore
-from app.utils.utils import yolo, get_latest_trained_weights
+from app.utils.utils import yolo, get_latest_trained_weights, ModelManager
 from app.utils.config import DATASET_DIR, YOLO_WEIGHTS, BASE_DIR
 from app.utils.ws_manager import ws_manager
 import torch
@@ -234,10 +234,11 @@ def _train(dataset_dir=str(DATASET_DIR), epochs=100, imgsz=640, val_ratio=0.2):
     with reload_lock:
         latest_weights = train_yolo_autosplit(dataset_dir, epochs, imgsz, val_ratio)
 
-        # Reload model globally
+        # Reload model globally using the ModelManager singleton pattern
         global yolo
-        yolo = YOLO(latest_weights)
-        yolo.to(device)
+        yolo = ModelManager.reload_model() # <-- CALL THE MANAGER TO RELOAD
+        
+        # NOTE: ModelManager.reload_model() handles the actual loading and device assignment now.
 
         msg = f"🔄 Model reloaded with latest trained weights: {latest_weights}"
         print(msg)

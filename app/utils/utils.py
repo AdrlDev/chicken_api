@@ -53,16 +53,22 @@ class ModelManager:
         return cls._instance
 
     @classmethod
-    def get_base_yolov8n(cls, force_reload=False):
+    def reload_model(cls):
+        """Forces the ModelManager to check for and load the latest trained weights."""
+        cls._instance = None # Reset the instance
+        return cls.get_model(force_reload=True)
+
+    @classmethod
+    def get_base_yolo11n(cls, force_reload=False):
         """
-        Always load the base YOLOv8n model (yolov8n.pt), ignoring any trained weights.
+        Always load the base yolo11n model (yolo11n.pt), ignoring any trained weights.
         """
-        print(f"🔄 Loading base YOLOv8n model from: {YOLO_WEIGHTS}")
+        print(f"🔄 Loading base yolo11n model from: {YOLO_WEIGHTS}")
         base_model = YOLO(YOLO_WEIGHTS)
         base_model.to(DEVICE)
-        print(f"✅ Base YOLOv8n model loaded successfully on {DEVICE}")
+        print(f"✅ Base yolo11n model loaded successfully on {DEVICE}")
         return base_model
 
 # Create singleton instance for general use
 yolo = ModelManager.get_model(force_reload=True)
-yoloV8n = ModelManager.get_base_yolov8n()
+yolo11n = ModelManager.get_base_yolo11n()
