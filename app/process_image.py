@@ -24,6 +24,20 @@ MAX_IMAGE_DIM = 1024
 
 processing_tasks: Dict[str, Dict] = {}
 
+# --- NEW: Defined classes from your Label Studio config ---
+DEFAULT_CLASSES = [
+    "healthy",
+    "avian Influenza",
+    "blue comb",
+    "coccidiosis",
+    "coccidiosis poops",
+    "fowl cholera",
+    "fowl-pox",
+    "mycotic infections",
+    "salmo",
+]
+# --------------------------------------------------------
+
 class AutoLabelResponse(BaseModel):
     message: str
     mode: str
@@ -38,26 +52,40 @@ async def process_image(task_id: str, image_path: str, label_name: str):
 
         # -------------------- CLASSES --------------------
         classes = []
-        if CLASSES_PATH.exists():
+        CLASSES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize classes with DEFAULT_CLASSES if classes.txt doesn't exist or is empty
+        if not CLASSES_PATH.exists() or os.stat(CLASSES_PATH).st_size == 0:
+            classes = DEFAULT_CLASSES
+        else:
             with open(CLASSES_PATH, "r") as f:
                 classes = [line.strip() for line in f if line.strip()]
 
-        # Normalize for comparison (case-insensitive)
+        # Ensure all DEFAULT_CLASSES are in the file and in the correct order
+        # This prevents issues if someone manually edited the file
         classes_lower = [c.lower() for c in classes]
+        new_classes_added = False
+        for default_class in DEFAULT_CLASSES:
+            if default_class.lower() not in classes_lower:
+                classes.append(default_class)
+                classes_lower.append(default_class.lower())
+                new_classes_added = True
+        
+        # Save updated classes.txt only if something was changed
+        if new_classes_added or classes != DEFAULT_CLASSES: # Check to ensure the file is consistent
+            with open(CLASSES_PATH, "w") as f:
+                f.write("\n".join(DEFAULT_CLASSES) + "\n") # Always write the definitive list
+            classes = DEFAULT_CLASSES
+            classes_lower = [c.lower() for c in classes]
+
+
+        # Get the index of the current label, which MUST be in the classes list now
         label_lower = label_name.lower() if label_name else None
+        if not label_lower or label_lower not in classes_lower:
+            # Fallback if a strange label name is used that isn't in the default list
+            raise ValueError(f"Label name '{label_name}' is not one of the predefined classes.")
 
-        # Add label if new
-        if label_lower and label_lower not in classes_lower:
-            classes.append(label_name)
-            classes_lower.append(label_lower)
-
-        # Save updated classes.txt
-        CLASSES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(CLASSES_PATH, "w") as f:
-            f.write("\n".join(classes) + "\n")
-
-        # Get the index after update
-        label_index = classes_lower.index(label_lower) if label_lower else 0
+        label_index = classes_lower.index(label_lower)
 
         # -------------------- LOAD IMAGE --------------------
         orig_img = cv2.imread(str(image_path))
@@ -102,11 +130,27 @@ async def process_image(task_id: str, image_path: str, label_name: str):
             }
             return
 
-        # -------------------- MOVE IMAGE --------------------
+        # -------------------- CREATE YOLO LABEL FILE (using original image path stem) --------------------
+        # Write to a temporary location first, or just write it out.
+        # We will move it later with the image.
+        original_stem = Path(image_path).stem
+        temp_yolo_label_path = Path(image_path).parent / f"{original_stem}.txt"
+
+        with open(temp_yolo_label_path, "w") as f:
+            for det in detections:
+                x, y, w_box, h_box = det["bbox"]
+                f.write(f"{label_index} {x:.6f} {y:.6f} {w_box:.6f} {h_box:.6f}\n")
+
+        # -------------------- MOVE IMAGE AND LABEL FILE TO FINAL LOCATION --------------------
         dataset_img = Path(DATASET_DIR) / "images" / Path(image_path).name
         dataset_img.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(image_path, dataset_img)
+        shutil.move(image_path, dataset_img) # Move the image
 
+        yolo_label_path = LABELS_DIR / f"{original_stem}.txt"
+        LABELS_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.move(temp_yolo_label_path, yolo_label_path) # Move the label file
+
+        # -------------------- COPY IMAGE TO PUBLIC DIR (Must happen after move to DATASET_DIR) --------------------
         public_img = PUBLIC_IMAGE_DIR / dataset_img.name
         public_img.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(dataset_img, public_img)
