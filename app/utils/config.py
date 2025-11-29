@@ -12,7 +12,7 @@ AUTO_TRAIN_EPOCHS = 5
 AUTO_TRAIN_IMAGE_SIZE = 640
 
 # Paths
-BASE_DIR = Path(__file__).parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATASET_DIR = BASE_DIR / "dataset"
 IMAGES_DIR = DATASET_DIR / "images"
 LABELS_DIR = DATASET_DIR / "labels"

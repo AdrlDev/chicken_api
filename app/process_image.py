@@ -1,4 +1,4 @@
-# process_image.py
+# process_image.py (FIXED)
 
 import os
 import json
@@ -51,6 +51,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         ls_client = get_client()
 
         # -------------------- CLASSES --------------------
+        # ... (CLASSES logic remains unchanged) ...
         classes = []
         CLASSES_PATH.parent.mkdir(parents=True, exist_ok=True)
         
@@ -62,7 +63,6 @@ async def process_image(task_id: str, image_path: str, label_name: str):
                 classes = [line.strip() for line in f if line.strip()]
 
         # Ensure all DEFAULT_CLASSES are in the file and in the correct order
-        # This prevents issues if someone manually edited the file
         classes_lower = [c.lower() for c in classes]
         new_classes_added = False
         for default_class in DEFAULT_CLASSES:
@@ -72,9 +72,9 @@ async def process_image(task_id: str, image_path: str, label_name: str):
                 new_classes_added = True
         
         # Save updated classes.txt only if something was changed
-        if new_classes_added or classes != DEFAULT_CLASSES: # Check to ensure the file is consistent
+        if new_classes_added or classes != DEFAULT_CLASSES:
             with open(CLASSES_PATH, "w") as f:
-                f.write("\n".join(DEFAULT_CLASSES) + "\n") # Always write the definitive list
+                f.write("\n".join(DEFAULT_CLASSES) + "\n")
             classes = DEFAULT_CLASSES
             classes_lower = [c.lower() for c in classes]
 
@@ -82,7 +82,6 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # Get the index of the current label, which MUST be in the classes list now
         label_lower = label_name.lower() if label_name else None
         if not label_lower or label_lower not in classes_lower:
-            # Fallback if a strange label name is used that isn't in the default list
             raise ValueError(f"Label name '{label_name}' is not one of the predefined classes.")
 
         label_index = classes_lower.index(label_lower)
@@ -99,7 +98,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
 
         # -------------------- DETECT CHICKENS USING BASE YOLOv8n --------------------
         base_model = YOLO(YOLO_WEIGHTS)
-        results = base_model.predict(img, conf=0.3, save=False)  # adjust confidence if needed
+        results = base_model.predict(img, conf=0.3, save=False)
 
         detections = []
         for r in results:
@@ -118,7 +117,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
                 w_norm = w_box / orig_w
                 h_norm = h_box / orig_h
                 detections.append({
-                    "label": label_name,  # Use frontend label
+                    "label": label_name,
                     "bbox": [x_center, y_center, w_norm, h_norm],
                     "abs_bbox": [x1, y1, w_box, h_box]
                 })
@@ -130,9 +129,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
             }
             return
 
-        # -------------------- CREATE YOLO LABEL FILE (using original image path stem) --------------------
-        # Write to a temporary location first, or just write it out.
-        # We will move it later with the image.
+        # -------------------- CREATE YOLO LABEL FILE (Temp) --------------------
         original_stem = Path(image_path).stem
         temp_yolo_label_path = Path(image_path).parent / f"{original_stem}.txt"
 
@@ -144,13 +141,13 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------- MOVE IMAGE AND LABEL FILE TO FINAL LOCATION --------------------
         dataset_img = Path(DATASET_DIR) / "images" / Path(image_path).name
         dataset_img.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(image_path, dataset_img) # Move the image
+        shutil.move(image_path, dataset_img) # Move the image to final dataset/images
 
         yolo_label_path = LABELS_DIR / f"{original_stem}.txt"
         LABELS_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.move(temp_yolo_label_path, yolo_label_path) # Move the label file
+        shutil.move(temp_yolo_label_path, yolo_label_path) # Move the label file to final dataset/labels
 
-        # -------------------- COPY IMAGE TO PUBLIC DIR (Must happen after move to DATASET_DIR) --------------------
+        # -------------------- COPY IMAGE TO PUBLIC DIR --------------------
         public_img = PUBLIC_IMAGE_DIR / dataset_img.name
         public_img.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(dataset_img, public_img)
@@ -159,6 +156,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         # -------------------- CREATE LABEL STUDIO TASK --------------------
         PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
         ls_annotations = [
+            # ... (annotations logic unchanged) ...
             {
                 "from_name": "label",
                 "to_name": "image",
@@ -181,14 +179,6 @@ async def process_image(task_id: str, image_path: str, label_name: str):
             model_version="v1-auto",
             result=ls_annotations
         )
-
-        # -------------------- SAVE YOLO LABEL FILE --------------------
-        yolo_label_path = LABELS_DIR / f"{Path(image_path).stem}.txt"
-        LABELS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(yolo_label_path, "w") as f:
-            for det in detections:
-                x, y, w_box, h_box = det["bbox"]
-                f.write(f"{label_index} {x:.6f} {y:.6f} {w_box:.6f} {h_box:.6f}\n")
 
         # -------------------- UPDATE NOTES --------------------
         notes_path = Path(DATASET_DIR) / "notes.json"
