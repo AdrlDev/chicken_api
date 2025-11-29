@@ -1,7 +1,7 @@
 #detection.py
 
 import cv2
-from app.utils import yolo
+from app.utils.utils import yolo
 
 stop_live = False
 

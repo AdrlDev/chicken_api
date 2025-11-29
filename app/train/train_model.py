@@ -8,9 +8,9 @@ import json
 import random
 import asyncio
 from ultralytics import YOLO  # type: ignore
-from app.utils import BASE_DIR, YOLO_WEIGHTS, yolo, get_latest_trained_weights
-from app.config import DATASET_DIR
-from app.ws_manager import ws_manager
+from app.utils.utils import yolo, get_latest_trained_weights
+from app.utils.config import DATASET_DIR, YOLO_WEIGHTS, BASE_DIR
+from app.utils.ws_manager import ws_manager
 import torch
 
 # -------------------
@@ -156,7 +156,7 @@ def update_data_yaml(dataset_dir: str):
 # -------------------
 # Training
 # -------------------
-def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ratio: float = 0.2):
+def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, val_ratio: float = 0.2):
     images_dir = os.path.join(dataset_dir, "images")
     labels_dir = os.path.join(dataset_dir, "labels")
 
@@ -198,10 +198,11 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 50, imgsz: int = 640, v
         data=data_yaml_path,
         epochs=epochs,
         imgsz=imgsz,
-        batch=1,
+        batch=8,
         project=save_dir,
         name="train",
-        exist_ok=True
+        exist_ok=True,
+        cache="ram"
     )
 
     # -------------------------------

@@ -25,14 +25,13 @@ from fastapi import (
     status,
     WebSocketDisconnect
 )
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 import asyncio
 from app.detection import _run_detection
-from app.utils import yolo
-from app.config import (
+from app.utils.utils import yolo
+from app.utils.config import (
     IMAGES_DIR, 
     LABELS_DIR, 
     CONFIDENCE_THRESHOLD,
@@ -41,8 +40,8 @@ from app.config import (
 )
 from app.process_image import process_image, processing_tasks, AutoLabelResponse
 
-from app.ws_manager import ws_manager
-from app.trainer_ws import start_training_thread
+from app.utils.ws_manager import ws_manager
+from app.train.trainer_ws import start_training_thread
 
 from contextlib import asynccontextmanager
 from app.auth.login import router as auth_router

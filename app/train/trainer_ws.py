@@ -1,8 +1,8 @@
 import threading
 import io
 import asyncio
-from app.ws_manager import ws_manager
-from app.train_model import _train
+from app.utils.ws_manager import ws_manager
+from app.train.train_model import _train
 import sys, threading
 
 MAIN_LOOP = asyncio.get_event_loop()  # capture main loop for WS

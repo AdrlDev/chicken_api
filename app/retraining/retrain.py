@@ -1,15 +1,13 @@
 # retrain_with_roboflow.py
-import os
 import shutil
 from pathlib import Path
 from ultralytics import YOLO
 import torch
-from app.config import DATASET_DIR, YOLO_WEIGHTS, IMAGES_DIR, LABELS_DIR, CLASSES_PATH, ROBOFLOW
-from app.utils import get_latest_trained_weights
-from app.ws_manager import ws_manager
+from app.utils.config import DATASET_DIR, YOLO_WEIGHTS, IMAGES_DIR, LABELS_DIR, CLASSES_PATH, ROBOFLOW
+from app.utils.utils import get_latest_trained_weights
+from app.utils.ws_manager import ws_manager
 import asyncio
 import json
-import random
 
 # -------------------
 # Device & loop

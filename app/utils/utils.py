@@ -1,10 +1,7 @@
 # utils.py
-import os
-from pathlib import Path
 from ultralytics import YOLO  # type: ignore
-from datetime import datetime
 import torch
-from app.config import (
+from app.utils.config import (
     BASE_DIR,
     YOLO_WEIGHTS
 )

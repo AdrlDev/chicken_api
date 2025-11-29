@@ -7,11 +7,12 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict
 from pydantic import BaseModel
-from app.config import (
+from app.utils.config import (
     DATASET_DIR,
     LABELS_DIR,
     CLASSES_PATH,
-    PUBLIC_IMAGE_DIR
+    PUBLIC_IMAGE_DIR,
+    YOLO_WEIGHTS
 )
 from app.label_studio import get_client
 import cv2
@@ -69,7 +70,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         img = cv2.resize(orig_img, (int(orig_w*scale), int(orig_h*scale))) if scale < 1.0 else orig_img.copy()
 
         # -------------------- DETECT CHICKENS USING BASE YOLOv8n --------------------
-        base_model = YOLO("yolo11n.pt")
+        base_model = YOLO(YOLO_WEIGHTS)
         results = base_model.predict(img, conf=0.3, save=False)  # adjust confidence if needed
 
         detections = []
