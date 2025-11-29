@@ -1,6 +1,6 @@
 # This script merges Roboflow datasets into a final format for training.
 import shutil
-from app.utils.config import ROBOFLOW, IMAGES_DIR, LABELS_DIR
+from utils.config import ROBOFLOW, IMAGES_DIR, LABELS_DIR
 # Paths
 
 RF_SETS = ["train", "valid", "test"]
