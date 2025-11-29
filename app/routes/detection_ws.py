@@ -175,34 +175,49 @@ async def websocket_video_detect(websocket: WebSocket):
     # ---------------------------
     try:
         while True:
-            # 1️⃣ Receive frame from client
-            try:
-                data = await websocket.receive_bytes()
-            except WebSocketDisconnect:
-                break
-            except Exception as e:
-                print("Receive error:", e)
-                break
+            # 1️⃣ Receive either frame bytes or a text control message
+            message = await websocket.receive() # Use receive() to get type (text or bytes)
+            
+            if "bytes" in message:
+                # ---------------------------------------------
+                # CASE 1: Received video frame data (bytes)
+                # ---------------------------------------------
+                data = message["bytes"]
+                
+                # 2️⃣ Decode frame
+                np_img = np.frombuffer(data, np.uint8)
+                frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
+                if frame is None:
+                    continue
 
-            # 2️⃣ Decode frame
-            np_img = np.frombuffer(data, np.uint8)
-            frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-            if frame is None:
-                continue
+                # 3️⃣ Put frame into queue (drop oldest if full)
+                if frame_queue.full():
+                    try:
+                        frame_queue.get_nowait()
+                    except:
+                        pass
+                await frame_queue.put(frame)
 
-            # 3️⃣ Put frame into queue (drop oldest if full)
-            if frame_queue.full():
-                try:
-                    frame_queue.get_nowait()
-                except:
-                    pass
-            await frame_queue.put(frame)
+                # 4️⃣ Send all available results
+                while not result_queue.empty():
+                    result = await result_queue.get()
+                    await websocket.send_json(result)
 
-            # 4️⃣ Send all available results
-            while not result_queue.empty():
-                result = await result_queue.get()
-                await websocket.send_json(result)
-
+            elif "text" in message:
+                # ---------------------------------------------
+                # ⭐️ CASE 2: Received control signal (text)
+                # ---------------------------------------------
+                signal = message["text"].strip().upper()
+                if signal == "STOP" or signal == "STOP_DETECTION":
+                    print(f"🛑 Received STOP signal from client.")
+                    
+                    # ⭐️ CRITICAL FIX: Gracefully exit the loop and rely on 'finally'
+                    break
+    except WebSocketDisconnect:
+        print("🛑 Client disconnected normally")
+        # The 'finally' block will handle cleanup
+    except Exception as e:
+        print(f"❌ WebSocket error: {str(e)}")
     finally:
         stop_event.set()
         worker_task.cancel()
