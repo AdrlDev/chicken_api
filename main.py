@@ -16,6 +16,7 @@ from app.routes.live_detection import router as live_detect_router
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from fastapi.middleware.cors import CORSMiddleware
 
 # Load environment variables
 load_dotenv()
@@ -42,6 +43,33 @@ app = FastAPI(
     version="1.0",
     description="API for chicken disease detection and model training using YOLOv8",
     lifespan=lifespan
+)
+
+# ----------------------------------------------------------------
+# ⭐️ FIX: Add CORSMiddleware
+# ----------------------------------------------------------------
+
+origins = [
+    # ⭐️ ALLOW YOUR FRONTEND ORIGIN (localhost)
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    
+    # ⭐️ ALLOW YOUR DEPLOYED FRONTEND ORIGIN (If different from backend)
+    # E.g., if the frontend is served from https://chickens.com
+    # "https://chickens.com", 
+    
+    # If the backend and frontend are the same origin, you don't need this, 
+    # but for local dev, you definitely do.
+    
+    # NOTE: You can use ["*"] for development, but it's less secure.
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,                      # Specify the allowed origins
+    allow_credentials=True,                     # Allow cookies/auth headers
+    allow_methods=["*"],                        # Allow all HTTP methods (GET, POST, etc.)
+    allow_headers=["*", "Authorization"],       # Allow all headers, including custom ones like Authorization
 )
 
 # Serve dataset/images at /dataset/images
