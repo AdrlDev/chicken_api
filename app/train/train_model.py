@@ -174,7 +174,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
     # -------------------------------
     data_yaml_path = update_data_yaml(dataset_dir)
 
-    model = ModelManager.get_model()
+    model = ModelManager.get_model(force_reload=True)
     model.to(device)
 
     # -------------------------------
