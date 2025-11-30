@@ -70,5 +70,4 @@ class ModelManager:
         return base_model
 
 # Create singleton instance for general use
-yolo = ModelManager.get_model(force_reload=True)
 yolo11n = ModelManager.get_base_yolo11n()

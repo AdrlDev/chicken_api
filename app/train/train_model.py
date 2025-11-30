@@ -7,8 +7,7 @@ import threading
 import json
 import random
 import asyncio
-from ultralytics import YOLO  # type: ignore
-from app.utils.utils import yolo, get_latest_trained_weights, ModelManager
+from app.utils.utils import ModelManager
 from app.utils.config import DATASET_DIR, YOLO_WEIGHTS, BASE_DIR
 from app.utils.ws_manager import ws_manager
 import torch
@@ -175,13 +174,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
     # -------------------------------
     data_yaml_path = update_data_yaml(dataset_dir)
 
-    # -------------------------------
-    # 3. Select correct weights
-    # -------------------------------
-    weights_to_use = get_latest_trained_weights()
-    print(f"🔧 Loading model weights: {weights_to_use}")
-
-    model = YOLO(weights_to_use)
+    model = ModelManager.get_model()
     model.to(device)
 
     # -------------------------------

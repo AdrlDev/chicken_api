@@ -1,7 +1,7 @@
 #detection.py
 
 import cv2
-from app.utils.utils import yolo
+from app.utils.utils import ModelManager
 
 stop_live = False
 
@@ -20,7 +20,8 @@ def _run_detection():
             if not ret:
                 break
 
-            results = yolo(frame, stream=True) # type: ignore
+            current_model = ModelManager.get_model()
+            results = current_model(frame, stream=True) # type: ignore
             for r in results:
                 for box in r.boxes:
                     conf = float(box.conf[0])

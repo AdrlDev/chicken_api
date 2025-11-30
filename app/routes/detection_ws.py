@@ -9,10 +9,10 @@ from datetime import datetime
 from typing import List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from app.utils.utils import yolo
 from app.utils.config import CONFIDENCE_THRESHOLD, WS_MAX_CONNECTIONS
 from app.utils.websocket_manager_shared import manager
 from app.utils.ws_manager import ws_manager as train_ws_manager # Use alias for clarity
+from app.utils.utils import ModelManager
 
 router = APIRouter(
     tags=["Realtime Detection"],
@@ -68,7 +68,8 @@ async def websocket_detect(websocket: WebSocket):
 
             # Run detection with proper input size
             try:
-                results = yolo.predict(frame)
+                current_model = ModelManager.get_model()
+                results = current_model.predict(frame)
 
                 detections = []
                 for r in results:
@@ -78,7 +79,7 @@ async def websocket_detect(websocket: WebSocket):
                             continue
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
                         cls = int(box.cls[0])
-                        label = yolo.names[cls]
+                        label = current_model.names[cls]
 
                         # Draw box for visualization
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -135,7 +136,8 @@ async def websocket_video_detect(websocket: WebSocket):
 
             # YOLO inference
             try:
-                results = yolo(frame)  # type: ignore
+                current_model = ModelManager.get_model()
+                results = current_model(frame)
                 detections: list[dict] = []
 
                 for r in results:
@@ -146,7 +148,7 @@ async def websocket_video_detect(websocket: WebSocket):
                         # ... (rest of detection logic) ...
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
                         cls = int(box.cls[0])
-                        label = yolo.names[cls]
+                        label = current_model.names[cls]
 
                         detections.append({
                             "label": label,
