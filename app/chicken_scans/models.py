@@ -1,6 +1,7 @@
 # app/api/chicken_scans/models.py
 
 from pydantic import BaseModel, Field
+from datetime import date
 
 # Ensure the disease labels match the ones used in your frontend chart
 DISEASE_LABELS = {
@@ -26,3 +27,13 @@ class ScanResultOut(BaseModel):
     diagnosis: str
     farm_id: int
     timestamp: str # Stored as text/ISO format
+
+class TrendDataResponse(BaseModel):
+    """Schema for a single data point in the health trend chart."""
+    date: date  # Will be formatted as 'YYYY-MM-DD'
+    healthy_count: int
+    issue_count: int
+
+    class Config:
+        # Allows ORM objects (like SQLAlchemy results) to be converted to Pydantic models
+        from_attributes = True

@@ -96,9 +96,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
 
         label_index = classes_lower.index(label_lower)
 
-        # -------------------- CLASSES --------------------
-        # ... (Classes logic remains the same, assuming it's correct) ...
-        # -------------------- LOAD IMAGE & DETECT CHICKENS --------------------
+        # -------------------- LOAD IMAGE --------------------
         orig_img = cv2.imread(str(image_path))
         if orig_img is None:
             raise ValueError("Failed to read uploaded image")
@@ -108,7 +106,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         scale = min(1.0, MAX_IMAGE_DIM / max(orig_w, orig_h))
         img = cv2.resize(orig_img, (int(orig_w*scale), int(orig_h*scale))) if scale < 1.0 else orig_img.copy()
 
-        # DETECT CHICKENS USING BASE YOLOv8n
+        # -------------------- DETECT CHICKENS USING BASE YOLOv8n --------------------
         base_model = YOLO(YOLO_WEIGHTS)
         results = base_model.predict(img, conf=0.3, save=False)
 
@@ -134,96 +132,63 @@ async def process_image(task_id: str, image_path: str, label_name: str):
                     "abs_bbox": [x1, y1, w_box, h_box]
                 })
 
-        # -------------------- MOVE IMAGE TO FINAL LOCATION & PUBLIC DIR --------------------
+        if not detections:
+            processing_tasks[task_id] = {
+                "status": "error",
+                "error": "No chickens detected — please label manually in Label Studio"
+            }
+            return
+
+        # -------------------- CREATE YOLO LABEL FILE (Temp) --------------------
         original_stem = Path(image_path).stem
-        
-        # Ensure image is moved to the final dataset directory regardless of detection success
+        temp_yolo_label_path = Path(image_path).parent / f"{original_stem}.txt"
+
+        with open(temp_yolo_label_path, "w") as f:
+            for det in detections:
+                x, y, w_box, h_box = det["bbox"]
+                f.write(f"{label_index} {x:.6f} {y:.6f} {w_box:.6f} {h_box:.6f}\n")
+
+        # -------------------- MOVE IMAGE AND LABEL FILE TO FINAL LOCATION --------------------
         dataset_img = Path(DATASET_DIR) / "images" / Path(image_path).name
         dataset_img.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(image_path, dataset_img) # Move the image to final dataset/images
 
-        # Copy to public directory for Label Studio access
+        yolo_label_path = LABELS_DIR / f"{original_stem}.txt"
+        LABELS_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.move(temp_yolo_label_path, yolo_label_path) # Move the label file to final dataset/labels
+
+        # -------------------- COPY IMAGE TO PUBLIC DIR --------------------
         public_img = PUBLIC_IMAGE_DIR / dataset_img.name
         public_img.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(dataset_img, public_img)
         image_url = f"https://aedev.cloud/dataset/images/{dataset_img.name}"
-        
-        # -------------------- HANDLING ZERO DETECTIONS --------------------
-        if not detections:
-            # ⭐ FIX: Do NOT return here. Continue to create the LS task for manual annotation.
-            processing_tasks[task_id] = {
-                "status": "completed", # Mark as completed, but with a warning/manual mode
-                "result": AutoLabelResponse(
-                    message=f"⚠️ No chickens detected. Task created for manual labeling.",
-                    mode="manual",
-                    image=str(dataset_img),
-                    label_file="N/A", # No label file created
-                    label_name=label_name,
-                    classes=classes
-                )
-            }
-            # Skip label file creation and prediction, but create the base task.
-            
-        # -------------------- CREATE YOLO LABEL FILE (Only if detections exist) --------------------
-        yolo_label_path = LABELS_DIR / f"{original_stem}.txt"
-        
-        if detections:
-            temp_yolo_label_path = Path(dataset_img.parent) / f"{original_stem}.txt"
-            
-            # 1. Create temporary YOLO label file
-            with open(temp_yolo_label_path, "w") as f:
-                for det in detections:
-                    x, y, w_box, h_box = det["bbox"]
-                    f.write(f"{label_index} {x:.6f} {y:.6f} {w_box:.6f} {h_box:.6f}\n")
-
-            # 2. Move label file to final location
-            LABELS_DIR.mkdir(parents=True, exist_ok=True)
-            shutil.move(temp_yolo_label_path, yolo_label_path) # Move the label file to final dataset/labels
 
         # -------------------- CREATE LABEL STUDIO TASK --------------------
-        PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "7"))
-        
-        # FIX: Define empty annotations if no detections, so prediction creation is skipped.
-        ls_annotations = []
-        if detections:
-            ls_annotations = [
-                {
-                    "from_name": "label",
-                    "to_name": "image",
-                    "type": "rectanglelabels",
-                    "value": {
-                        # ... (Existing geometry calculations for Label Studio) ...
-                        "x": det["bbox"][0]*100 - det["bbox"][2]*50,
-                        "y": det["bbox"][1]*100 - det["bbox"][3]*50,
-                        "width": det["bbox"][2]*100,
-                        "height": det["bbox"][3]*100,
-                        "rotation": 0,
-                        "rectanglelabels": [det["label"]],
-                    }
+        PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
+        ls_annotations = [
+            # ... (annotations logic unchanged) ...
+            {
+                "from_name": "label",
+                "to_name": "image",
+                "type": "rectanglelabels",
+                "value": {
+                    "x": det["bbox"][0]*100 - det["bbox"][2]*50,
+                    "y": det["bbox"][1]*100 - det["bbox"][3]*50,
+                    "width": det["bbox"][2]*100,
+                    "height": det["bbox"][3]*100,
+                    "rotation": 0,
+                    "rectanglelabels": [det["label"]],
                 }
-                for det in detections
-            ]
+            }
+            for det in detections
+        ]
 
-        # ⭐ CRITICAL STEP: Create the task regardless of detections
         task = await ls_client.tasks.create(data={"image": image_url}, project=PROJECT_ID)
-
-        # Only create a prediction if detections were made
-        if ls_annotations:
-            await ls_client.predictions.create(
-                task=task.id,
-                model_version="v1-auto",
-                result=ls_annotations
-            )
-
-            # Update the task status result if detections were made
-            processing_tasks[task_id]["result"] = AutoLabelResponse(
-                message=f"✅ {len(detections)} chickens detected and labeled with '{label_name}'.",
-                mode="auto",
-                image=str(dataset_img),
-                label_file=str(yolo_label_path),
-                label_name=label_name,
-                classes=classes
-            )
+        await ls_client.predictions.create(
+            task=task.id,
+            model_version="v1-auto",
+            result=ls_annotations
+        )
 
         # -------------------- UPDATE NOTES --------------------
         notes_path = Path(DATASET_DIR) / "notes.json"
@@ -234,14 +199,22 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         notes[dataset_img.name] = {
             "label": label_name,
             "upload_date": datetime.now().isoformat(),
-            "detections": len(detections), # Will be 0 if skipped prediction
-            "ls_task_id": task.id # Added LS Task ID for tracking
+            "detections": len(detections)
         }
         with open(notes_path, "w") as f:
             json.dump(notes, f, indent=4)
-        
-        # If no detections were made, the `processing_tasks` result message 
-        # set earlier will remain, indicating it needs manual labeling.
+
+        processing_tasks[task_id] = {
+            "status": "completed",
+            "result": AutoLabelResponse(
+                message=f"✅ {len(detections)} chickens detected and labeled with '{label_name}'.",
+                mode="auto",
+                image=str(dataset_img),
+                label_file=str(yolo_label_path),
+                label_name=label_name,
+                classes=classes
+            )
+        }
 
     except Exception as e:
         processing_tasks[task_id] = {"status": "error", "error": str(e)}
