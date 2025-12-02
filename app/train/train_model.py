@@ -185,17 +185,21 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
     model.add_callback("on_train_batch_end", on_train_batch_end_callback)
 
     # -------------------------------
-    # 5. Train model
+    # 5. Train model (OPTIMIZED FOR 8GB RAM)
     # -------------------------------
+    print(f"🚀 Starting training with cache=False to save RAM...")
+    
     model.train(
         data=data_yaml_path,
         epochs=epochs,
         imgsz=imgsz,
-        batch=8,
+        batch=4,          # Reduced from 8 to 4 for stability
+        workers=2,        # Limit dataloader workers (prevents RAM spikes)
         project=save_dir,
         name="train",
         exist_ok=True,
-        cache="ram"
+        cache=False,      # <--- CRITICAL: Do not cache images in RAM
+        amp=True          # Use Automatic Mixed Precision (saves memory)
     )
 
     # -------------------------------
