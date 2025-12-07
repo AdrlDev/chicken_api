@@ -80,7 +80,7 @@ def _threaded_train(dataset_dir: str, epochs: int = 50, imgsz: int = 640, val_ra
 
         # Run training
         try:
-            _train(dataset_dir=dataset_dir, epochs=epochs, imgsz=imgsz, val_ratio=val_ratio)
+            _train(dataset_dir=dataset_dir, epochs_to_add=epochs, imgsz=imgsz, val_ratio=val_ratio)
             MAIN_LOOP.run_until_complete(ws_manager.broadcast("✅ Training finished"))
         except Exception as e:
             MAIN_LOOP.run_until_complete(ws_manager.broadcast(f"❌ Training failed: {str(e)}"))
