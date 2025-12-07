@@ -35,6 +35,7 @@ DEFAULT_CLASSES = [
     "fowl-pox",
     "mycotic infections",
     "salmo",
+    "marek's disease",
 ]
 # --------------------------------------------------------
 
