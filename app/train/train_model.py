@@ -11,6 +11,7 @@ from app.utils.utils import ModelManager
 from app.utils.config import DATASET_DIR, YOLO_WEIGHTS, BASE_DIR
 from app.utils.ws_manager import ws_manager
 import torch
+from ultralytics import YOLO
 
 # -------------------
 # Device & locks
@@ -174,7 +175,21 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
     # -------------------------------
     data_yaml_path = update_data_yaml(dataset_dir)
 
-    model = ModelManager.get_model(force_reload=True)
+    # 1. Check if a previous run exists that we can resume
+    last_ckpt = os.path.join(train_dir, "weights", "last.pt")
+
+    resume_training = False
+
+    if os.path.exists(last_ckpt):
+        print(f"🔄 Found interrupted training. Resuming from {last_ckpt}...")
+        # Load the LAST saved state, not a fresh model
+        model = YOLO(last_ckpt) 
+        resume_training = True
+    else:
+        print(f"🚀 Starting fresh training...")
+        # Load the fresh model manager
+        model = ModelManager.get_model(force_reload=True)
+
     model.to(device)
 
     # -------------------------------
@@ -199,7 +214,8 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
         name="train",
         exist_ok=True,
         cache=False,      # <--- CRITICAL: Do not cache images in RAM
-        amp=True          # Use Automatic Mixed Precision (saves memory)
+        amp=True,          # Use Automatic Mixed Precision (saves memory)
+        resume=resume_training
     )
 
     # -------------------------------
