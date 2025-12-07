@@ -11,9 +11,9 @@ LABELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Roboflow → Final class mapping
 rf_to_final = {
-    0: 4,   # cocci -> coccidiosis poops
+    0: 3,   # cocci -> coccidiosis poops
     1: 0,   # healthy -> healthy
-    2: 8    # salmo -> salmo
+    2: 7    # salmo -> salmo
 }
 
 def convert_label(src, dst):

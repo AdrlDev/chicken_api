@@ -30,7 +30,6 @@ DEFAULT_CLASSES = [
     "avian Influenza",
     "blue comb",
     "coccidiosis",
-    "coccidiosis poops",
     "fowl cholera",
     "fowl-pox",
     "mycotic infections",
