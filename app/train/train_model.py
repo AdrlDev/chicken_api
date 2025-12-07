@@ -143,16 +143,24 @@ def safe_merge_new_images(images_dir: str, labels_dir: str, val_ratio: float = 0
             dst_img = os.path.join(images_dir, subset, img_file)
             dst_lbl = os.path.join(labels_dir, subset, f"{base}.txt")
 
+            # Check 1: Image already moved or source image doesn't exist
             if os.path.exists(dst_img) or not os.path.exists(src_img):
                 continue
+            
+            # --- FIX: Require label file to exist for a valid YOLO dataset entry ---
+            if not os.path.exists(src_lbl):
+                print(f"⚠️ Skipping image {img_file}: missing label file {base}.txt in {labels_dir}")
+                continue 
+            # --- END FIX ---
 
             try:
+                # Both files are guaranteed to exist, now move both
                 shutil.move(src_img, dst_img)
-                if os.path.exists(src_lbl):
-                    shutil.move(src_lbl, dst_lbl)
+                shutil.move(src_lbl, dst_lbl)
                 moved_count += 1
             except Exception as move_err:
-                print(f"⚠️ Failed to move {img_file}: {move_err}")
+                # Revert logic to only print error, continue to next file
+                print(f"⚠️ Failed to move {img_file} and its label: {move_err}")
 
     print(f"📥 Merged {moved_count} new images into dataset.")
     asyncio.run_coroutine_threadsafe(
