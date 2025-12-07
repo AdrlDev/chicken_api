@@ -7,6 +7,7 @@ import threading
 import json
 import random
 import asyncio
+import csv  # <-- ADDED for reading the results.csv log
 from app.utils.utils import ModelManager
 from app.utils.config import DATASET_DIR, YOLO_WEIGHTS, BASE_DIR
 from app.utils.ws_manager import ws_manager
@@ -76,6 +77,35 @@ def on_model_save_callback(trainer):
         "loss_names": list(getattr(trainer, "loss_names", []))
     }
     send_ws_event(info)
+
+# -------------------
+# Helper: Read last epoch
+# -------------------
+def get_last_completed_epoch(train_dir: str) -> int:
+    """Reads the results.csv file to find the last completed epoch number."""
+    results_path = os.path.join(train_dir, "results.csv")
+    if not os.path.exists(results_path):
+        return 0
+    try:
+        with open(results_path, 'r') as f:
+            # Read all lines
+            lines = list(f.readlines())
+            
+            # Find the last non-comment line (data line)
+            last_data_line = None
+            for line in reversed(lines):
+                if line.strip() and not line.strip().startswith('#'):
+                    last_data_line = line
+                    break
+            
+            if last_data_line:
+                # The first item in the CSV row is the epoch number
+                # We expect it to be an integer (e.g., 100)
+                return int(last_data_line.split(',')[0].strip())
+            return 0
+    except Exception as e:
+        print(f"⚠️ Could not read last epoch from results.csv: {e}")
+        return 0
 
 # -------------------
 # Dataset utilities
@@ -156,7 +186,11 @@ def update_data_yaml(dataset_dir: str):
 # -------------------
 # Training
 # -------------------
-def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, val_ratio: float = 0.2):
+def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int = 416, val_ratio: float = 0.2):
+    """
+    Trains YOLOv8, calculating the total epochs based on previous runs.
+    epochs_to_add is the number of NEW epochs to run.
+    """
     images_dir = os.path.join(dataset_dir, "images")
     labels_dir = os.path.join(dataset_dir, "labels")
 
@@ -175,21 +209,44 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
     # -------------------------------
     data_yaml_path = update_data_yaml(dataset_dir)
 
-    # 1. Check if a previous run exists that we can resume
+    # -------------------------------
+    # 3. Determine resume state and target epochs
+    # -------------------------------
     last_ckpt = os.path.join(train_dir, "weights", "last.pt")
 
     resume_training = False
+    last_epoch = 0
+    model = None
 
     if os.path.exists(last_ckpt):
-        print(f"🔄 Found interrupted training. Resuming from {last_ckpt}...")
-        # Load the LAST saved state, not a fresh model
-        model = YOLO(last_ckpt) 
-        resume_training = True
+        last_epoch = get_last_completed_epoch(train_dir)
+        
+        if last_epoch > 0:
+            print(f"🔄 Found previous run ended at epoch {last_epoch}. Adding {epochs_to_add} new epochs.")
+            resume_training = True
+            # Load the LAST saved state
+            model = YOLO(last_ckpt) 
+        else:
+            # last.pt exists but log is missing/corrupted. Start fresh.
+            print(f"🚀 Starting fresh training due to missing log (last.pt found).")
+            model = ModelManager.get_model(force_reload=True)
+            last_epoch = 0
     else:
         print(f"🚀 Starting fresh training...")
         # Load the fresh model manager
         model = ModelManager.get_model(force_reload=True)
+        last_epoch = 0
 
+    # Calculate the total target epochs for the model.train() call
+    target_epochs = last_epoch + epochs_to_add
+    
+    # If resuming and target epochs is less than current epoch, it means the resume will fail or instantly complete.
+    # We ensure we run at least for epochs_to_add. This case should not happen if last_epoch is read correctly.
+    if target_epochs <= last_epoch:
+        target_epochs = last_epoch + epochs_to_add
+        
+    print(f"🎯 Target total epochs: {target_epochs} (resuming from {last_epoch})")
+    
     model.to(device)
 
     # -------------------------------
@@ -206,7 +263,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
     
     model.train(
         data=data_yaml_path,
-        epochs=epochs,
+        epochs=target_epochs, # <-- DYNAMICALLY CALCULATED TOTAL EPOCHS
         imgsz=imgsz,
         batch=4,          # Reduced from 8 to 4 for stability
         workers=2,        # Limit dataloader workers (prevents RAM spikes)
@@ -242,10 +299,14 @@ def train_yolo_autosplit(dataset_dir: str, epochs: int = 100, imgsz: int = 416, 
 # -------------------
 # Threaded training
 # -------------------
-def _train(dataset_dir=str(DATASET_DIR), epochs=100, imgsz=640, val_ratio=0.2):
-    """Threaded YOLOv8 training with WS stream"""
+def _train(dataset_dir=str(DATASET_DIR), epochs_to_add=50, imgsz=640, val_ratio=0.2):
+    """
+    Threaded YOLOv8 training with WS stream.
+    epochs_to_add is the number of new epochs to train for.
+    """
     with reload_lock:
-        latest_weights = train_yolo_autosplit(dataset_dir, epochs, imgsz, val_ratio)
+        # Pass epochs_to_add instead of a fixed total
+        latest_weights = train_yolo_autosplit(dataset_dir, epochs_to_add, imgsz, val_ratio) 
 
         # Reload model globally using the ModelManager singleton pattern
         global yolo
