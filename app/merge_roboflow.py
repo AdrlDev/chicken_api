@@ -3,7 +3,7 @@ import shutil
 from utils.config import ROBOFLOW, IMAGES_DIR, LABELS_DIR
 # Paths
 
-RF_SETS = ["train", "valid", "test"]
+RF_SETS = ["train"]
 
 # Final dataset folders
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
