@@ -273,8 +273,8 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
         data=data_yaml_path,
         epochs=target_epochs, # <-- DYNAMICALLY CALCULATED TOTAL EPOCHS
         imgsz=imgsz,
-        batch=4,          # Reduced from 8 to 4 for stability
-        workers=2,        # Limit dataloader workers (prevents RAM spikes)
+        batch=1,          # Reduced from 8 to 4 for stability
+        workers=1,        # Limit dataloader workers (prevents RAM spikes)
         project=save_dir,
         name="train",
         exist_ok=True,
