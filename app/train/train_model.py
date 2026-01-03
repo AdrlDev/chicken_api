@@ -268,6 +268,12 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
     # 5. Train model (OPTIMIZED FOR 8GB RAM)
     # -------------------------------
     print(f"🚀 Starting training with cache=False to save RAM...")
+
+    # Update the internal finish line so it doesn't think it's already done
+    if resume_training:
+        # 'overrides' is the dictionary YOLOv8 uses for training parameters
+        model.overrides['epochs'] = target_epochs
+        model.overrides['resume'] = True
     
     model.train(
         data=data_yaml_path,
