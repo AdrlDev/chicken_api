@@ -217,47 +217,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
     # -------------------------------
     data_yaml_path = update_data_yaml(dataset_dir)
 
-    # -------------------------------
-    # 3. Determine resume state and target epochs
-    # -------------------------------
-    last_ckpt = os.path.join(train_dir, "weights", "last.pt")
-
-    resume_training = False
-    last_epoch = 0
-    model = None
-
-    if os.path.exists(last_ckpt):
-        last_epoch = get_last_completed_epoch(train_dir)
-        
-        if last_epoch > 0:
-            print(f"🔄 Found previous run ended at epoch {last_epoch}. Adding {epochs_to_add} new epochs.")
-            resume_training = True
-            # Load the LAST saved state
-            model = YOLO(last_ckpt) 
-        elif last_epoch >= 100:
-            # Load the LAST saved state
-            model = ModelManager.get_model(force_reload=True)
-            last_epoch = 0
-        else:
-            # last.pt exists but log is missing/corrupted. Start fresh.
-            print(f"🚀 Starting fresh training due to missing log (last.pt found).")
-            model = ModelManager.get_model(force_reload=True)
-            last_epoch = 0
-    else:
-        print(f"🚀 Starting fresh training...")
-        # Load the fresh model manager
-        model = ModelManager.get_model(force_reload=True)
-        last_epoch = 0
-
-    # Calculate the total target epochs for the model.train() call
-    target_epochs = last_epoch + epochs_to_add
-    
-    # If resuming and target epochs is less than current epoch, it means the resume will fail or instantly complete.
-    # We ensure we run at least for epochs_to_add. This case should not happen if last_epoch is read correctly.
-    if target_epochs <= last_epoch:
-        target_epochs = last_epoch + epochs_to_add
-        
-    print(f"🎯 Target total epochs: {target_epochs} (resuming from {last_epoch})")
+    model = ModelManager.get_model(force_reload=True)
     
     model.to(device)
 
@@ -272,17 +232,10 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
     # 5. Train model (OPTIMIZED FOR 8GB RAM)
     # -------------------------------
     print(f"🚀 Starting training with cache=False to save RAM...")
-
-    # Update the internal finish line so it doesn't think it's already done
-    if resume_training:
-        # 'overrides' is the dictionary YOLOv8 uses for training parameters
-        if hasattr(model, 'overrides'):
-             model.overrides['epochs'] = target_epochs
-             model.overrides['resume'] = True
     
     model.train(
         data=data_yaml_path,
-        epochs=target_epochs, # <-- DYNAMICALLY CALCULATED TOTAL EPOCHS
+        epochs=epochs_to_add, # <-- DYNAMICALLY CALCULATED TOTAL EPOCHS
         imgsz=imgsz,
         batch=1,          # Reduced from 8 to 4 for stability
         workers=1,        # Limit dataloader workers (prevents RAM spikes)
@@ -290,8 +243,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
         name="train",
         exist_ok=True,
         cache=False,      # <--- CRITICAL: Do not cache images in RAM
-        amp=True,          # Use Automatic Mixed Precision (saves memory)
-        resume=resume_training
+        amp=True          # Use Automatic Mixed Precision (saves memory)
     )
 
     # -------------------------------
