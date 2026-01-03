@@ -234,6 +234,10 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
             resume_training = True
             # Load the LAST saved state
             model = YOLO(last_ckpt) 
+        elif last_epoch >= 100:
+            # Load the LAST saved state
+            model = ModelManager.get_model(force_reload=True)
+            last_epoch = 0
         else:
             # last.pt exists but log is missing/corrupted. Start fresh.
             print(f"🚀 Starting fresh training due to missing log (last.pt found).")
@@ -272,8 +276,9 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
     # Update the internal finish line so it doesn't think it's already done
     if resume_training:
         # 'overrides' is the dictionary YOLOv8 uses for training parameters
-        model.overrides['epochs'] = target_epochs
-        model.overrides['resume'] = True
+        if hasattr(model, 'overrides'):
+             model.overrides['epochs'] = target_epochs
+             model.overrides['resume'] = True
     
     model.train(
         data=data_yaml_path,
