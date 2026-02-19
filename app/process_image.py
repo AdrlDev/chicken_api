@@ -33,7 +33,7 @@ DEFAULT_CLASSES = [
     "fowl cholera",
     "fowl-pox",
     "mycotic infections",
-    "salmo",
+    "salmonela",
     "marek's disease",
 ]
 # --------------------------------------------------------

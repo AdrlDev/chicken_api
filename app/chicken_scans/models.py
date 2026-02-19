@@ -6,7 +6,7 @@ from datetime import date
 # Ensure the disease labels match the ones used in your frontend chart
 DISEASE_LABELS = {
     "avian influenza", "blue comb", "coccidiosis", "coccidiosis poops",
-    "fowl cholera", "fowl-pox", "mycotic infections", "salmo", "healthy"
+    "fowl cholera", "fowl-pox", "mycotic infections", "salmonela", "healthy"
 }
 
 class ScanResultIn(BaseModel):

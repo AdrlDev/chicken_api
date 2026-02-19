@@ -28,7 +28,7 @@ CLASSES = [
     "fowl cholera",
     "fowl-pox",
     "mycotic infections",
-    "salmo"
+    "salmonela"
 ]
 
 # Remap rules for Roboflow labels
