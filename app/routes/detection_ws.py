@@ -28,7 +28,7 @@ class DetectionResponse(BaseModel):
 MAX_QUEUE_SIZE = 1 
 
 # WebSocket endpoint for training logs (moved here)
-@router.websocket("/ws/train")
+@router.websocket("/train")
 async def websocket_train(ws: WebSocket):
     """WebSocket endpoint for streaming training logs."""
     await train_ws_manager.connect(ws)
@@ -38,7 +38,7 @@ async def websocket_train(ws: WebSocket):
     except WebSocketDisconnect:
         train_ws_manager.disconnect(ws)
 
-@router.websocket("/ws/detect")
+@router.websocket("/detect")
 async def websocket_detect(websocket: WebSocket):
     """WebSocket endpoint for real-time object detection from camera feed."""
     try:
@@ -114,7 +114,7 @@ async def websocket_detect(websocket: WebSocket):
         print(f" Active connections: {manager.connection_count}/{WS_MAX_CONNECTIONS}")
 
 
-@router.websocket("/ws/video-detect")
+@router.websocket("/video-detect")
 async def websocket_video_detect(websocket: WebSocket):
     """Optimized real-time detection WebSocket for video file processing."""
     await manager.connect(websocket)

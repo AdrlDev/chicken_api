@@ -35,3 +35,6 @@ python-jose==3.3.0
 
 # Optional: if you want email validation for login
 email-validator==2.2.0
+python-multipart
+
+websockets>=13.0

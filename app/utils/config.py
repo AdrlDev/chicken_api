@@ -18,7 +18,7 @@ IMAGES_DIR = DATASET_DIR / "images"
 LABELS_DIR = DATASET_DIR / "labels"
 CLASSES_PATH = DATASET_DIR / "classes.txt"
 YOLO_WEIGHTS = BASE_DIR / "assets" / "yolo11n.pt"
-PUBLIC_IMAGE_DIR = Path("/var/www/chicken_api/dataset/images")
+PUBLIC_IMAGE_DIR = Path("/var/www/dataset/images")
 
 # === CONFIG ===
 ROBOFLOW = BASE_DIR / "roboflow_dataset"

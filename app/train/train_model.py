@@ -243,7 +243,7 @@ def train_yolo_autosplit(dataset_dir: str, epochs_to_add: int = 50, imgsz: int =
         name="train",
         exist_ok=True,
         cache=False,      # <--- CRITICAL: Do not cache images in RAM
-        amp=True          # Use Automatic Mixed Precision (saves memory)
+        amp=False          # Use Automatic Mixed Precision (saves memory)
     )
 
     # -------------------------------

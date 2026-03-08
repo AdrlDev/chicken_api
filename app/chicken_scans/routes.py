@@ -46,6 +46,7 @@ async def create_scan_result(
     """
     Saves a new chicken scan result to the database.
     """
+    scan_in.diagnosis = scan_in.diagnosis.replace("\u2019", "'").replace("\u2018", "'").lower()
     # 1. Input Validation
     if scan_in.diagnosis not in DISEASE_LABELS:
         raise HTTPException(

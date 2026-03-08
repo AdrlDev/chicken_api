@@ -1,17 +1,23 @@
-# Use a lightweight Python image
 FROM python:3.11-slim
 
-# Set the working directory
 WORKDIR /app
 
-# Copy the requirements file and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install system dependencies for OpenCV
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    libxcb1 \
+    libx11-6 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the rest of the code
+COPY requirements.txt .
+
+# ⭐️ Update this line to ensure uvicorn[standard] is installed
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir "uvicorn[standard]"
+
+RUN pip install -U ultralytics "numpy>=2"
+
 COPY . .
 
-# Run the application (Change 'main:app' if your entry point is different)
-# If it's a simple script, use: CMD ["python", "main.py"]
-# If it's FastAPI/Uvicorn, use: CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

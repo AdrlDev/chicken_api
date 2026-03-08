@@ -27,7 +27,7 @@ processing_tasks: Dict[str, Dict] = {}
 # --- NEW: Defined classes from your Label Studio config ---
 DEFAULT_CLASSES = [
     "healthy",
-    "avian Influenza",
+    "avian influenza",
     "blue comb",
     "coccidiosis",
     "fowl cholera",
@@ -164,7 +164,7 @@ async def process_image(task_id: str, image_path: str, label_name: str):
         image_url = f"https://aedev.cloud/dataset/images/{dataset_img.name}"
 
         # -------------------- CREATE LABEL STUDIO TASK --------------------
-        PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
+        PROJECT_ID = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "3"))
         ls_annotations = [
             # ... (annotations logic unchanged) ...
             {
