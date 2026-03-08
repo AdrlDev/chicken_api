@@ -37,3 +37,7 @@ app-debug.apk
 docker-compose.yml
 deploy.sh
 setup.sh
+
+database/
+runs/
+dataset/
