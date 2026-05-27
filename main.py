@@ -1,5 +1,6 @@
 # main.py (SIMPLIFIED)
 
+import asyncio
 import os
 from dotenv import load_dotenv
 from typing import List
@@ -17,6 +18,7 @@ from app.routes.live_detection import router as live_detect_router
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
+from app.train.trainer_ws import set_main_loop
 
 # Load environment variables
 load_dotenv()
@@ -30,12 +32,9 @@ Path(LABELS_DIR).mkdir(parents=True, exist_ok=True)
 # ---------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
-    print("Initializing database...")
     await init_db()
-    print("Database initialized.")
+    set_main_loop(asyncio.get_event_loop())  # ← capture REAL loop at startup
     yield
-    # shutdown (optional cleanup)
 
 # Initialize FastAPI app
 app = FastAPI(
