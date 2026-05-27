@@ -51,8 +51,10 @@ app = FastAPI(
 
 origins = [
     # ⭐️ ALLOW YOUR FRONTEND ORIGIN (localhost)
-    "http://localhost:3000",
+     "http://localhost:3000",
+    "http://localhost:3001",   # ← add this
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",   # ← and this
     
     # ⭐️ ALLOW YOUR DEPLOYED FRONTEND ORIGIN (If different from backend)
     # E.g., if the frontend is served from https://chickens.com
