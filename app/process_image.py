@@ -28,12 +28,8 @@ processing_tasks: Dict[str, Dict] = {}
 DEFAULT_CLASSES = [
     "healthy",
     "avian influenza",
-    "blue comb",
     "coccidiosis",
-    "fowl cholera",
     "fowl-pox",
-    "mycotic infections",
-    "salmonela",
     "marek's disease",
 ]
 # --------------------------------------------------------
